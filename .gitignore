@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Local backups kept while the art was being rewritten — not part of the game
+*.bak
+
+# Leftover source images from before the artwork became procedural.
+# Nothing in the game loads these; game.js draws every texture at runtime.
+assets/
