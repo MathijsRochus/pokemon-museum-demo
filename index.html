@@ -152,14 +152,16 @@
             inset: 0;
             background: rgba(12, 8, 16, 0.94);
             z-index: 30;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
             padding: 24px;
+            overflow-y: auto;   /* the gallery below can run long */
         }
 
         .go-panel {
             text-align: center;
-            max-width: 460px;
+            max-width: 560px;
+            margin: auto;
         }
 
         .go-title {
@@ -370,6 +372,132 @@
         }
 
         .dex-credit a { color: #9aa6d2; }
+
+        /* Rarity chip. The tier colour is set inline from the tier table in
+           game.js, so the two never drift apart. */
+        .dex-rarity {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 8px;
+            font-size: 8px;
+            padding: 5px 8px;
+            margin-bottom: 10px;
+            border: 2px solid currentColor;
+            border-radius: 4px;
+            line-height: 1.4;
+        }
+
+        .dex-rarity span { color: #8f89a0; font-size: 7px; }
+
+        /* --- Dex footer --- */
+        #dex-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        #dex-download {
+            padding: 12px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 10px;
+            background: #2f5580;
+            color: #fff;
+            border: 2px solid #6a8fbf;
+            border-radius: 6px;
+        }
+
+        #dex-download:active { transform: translateY(2px); }
+
+        #dex-download-note {
+            font-size: 7px;
+            line-height: 1.9;
+            color: #7d7790;
+            margin-top: 10px;
+            max-width: 420px;
+        }
+
+        /* --- End-of-run gallery --- */
+        #go-gallery-title {
+            margin: 30px 0 6px;
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 1px;
+        }
+
+        #go-gallery-empty {
+            display: none;
+            font-size: 8px;
+            line-height: 1.9;
+            color: #9a94a8;
+        }
+
+        #go-gallery {
+            display: grid;
+            gap: 12px;
+            margin-top: 12px;
+            text-align: left;
+        }
+
+        .go-card {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            background: #211a28;
+            border: 2px solid #4a3b55;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        /* The frame keeps its space whether or not a photograph arrives, so a
+           late one does not shift the whole gallery when it lands. */
+        .go-card-frame {
+            flex: 0 0 92px;
+            width: 92px;
+            aspect-ratio: 1;
+            background: #16121c;
+            border: 2px solid #3b2f45;
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .go-card-frame img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        .go-card-frame.is-empty img { display: none; }
+
+        .go-card-frame.is-empty::after {
+            content: 'geen foto';
+            font-size: 6px;
+            color: #5f5670;
+            text-align: center;
+            padding: 4px;
+        }
+
+        .go-card-body { min-width: 0; }
+        .go-card-name { font-size: 10px; line-height: 1.5; margin-bottom: 8px; }
+        .go-card-maker { font-size: 8px; color: #9a94a8; margin-bottom: 6px; }
+
+        .go-card-desc {
+            font-size: 8px;
+            line-height: 1.9;
+            color: #c6c1d4;
+            max-height: 8.4em;
+            overflow-y: auto;
+        }
+
+        @media (max-width: 620px) {
+            .go-card { flex-direction: column; }
+            .go-card-frame { flex-basis: auto; width: 120px; }
+        }
 
         /* Wing heading in the dex, with that wing's tally on the right. */
         .dex-room {
@@ -651,6 +779,11 @@
                     <span>Moeilijkheid bij de klik</span><b id="go-threat">0%</b>
                 </div>
                 <button id="go-retry" onclick="restartRun()">Opnieuw naar binnen</button>
+
+                <div id="go-gallery-title">Wat je gezien hebt</div>
+                <div id="go-gallery-empty">Je bent MARLOT tegengekomen voor je
+                    iets kon bekijken. Volgende keer eerst naar een sokkel.</div>
+                <div id="go-gallery"></div>
             </div>
         </div>
 
@@ -687,7 +820,14 @@
             <h2>Mijn Museumdex</h2>
             <div id="dex-count">0 van 0 objecten gevonden</div>
             <div id="dex-list"></div>
-            <button id="dex-close" onclick="togglePokedex()">Sluiten (ESC)</button>
+            <div id="dex-actions">
+                <button id="dex-close" onclick="togglePokedex()">Sluiten (ESC)</button>
+                <button id="dex-download" onclick="downloadMuseumdex()">Download volledige data</button>
+            </div>
+            <div id="dex-download-note">
+                De download haalt de volledige catalogusgegevens op het moment
+                zelf op bij het museum, dus je krijgt meer mee dan hierboven past.
+            </div>
         </div>
     </div>
 
@@ -705,6 +845,6 @@
          so without it a returning player keeps running the previous game.js for
          ten minutes after a deploy while the new index.html is already loaded —
          a mismatch that looks exactly like "the deploy didn't work". -->
-    <script src="game.js?v=4"></script>
+    <script src="game.js?v=5"></script>
 </body>
 </html>

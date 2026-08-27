@@ -26,6 +26,7 @@
 
 const DMG = {
     BASE: 'https://data.designmuseumgent.be/v2/id',
+
     TOTAL_OBJECTS: 9879,   // hydra:totalItems — used to pick a random page
     TIMEOUT_MS: 8000,
 
@@ -35,12 +36,22 @@ const DMG = {
     // couple of times before it counts.
     RETRIES: 2,
 
-    async json(url) {
+    // The IIIF presentation server is far slower than the data API — measured
+    // at a 17s median when cold, and often 504 — so manifest fetches get their
+    // own budget. They only ever run in the background, never at boot.
+    MANIFEST_TIMEOUT_MS: 30000,
+
+    // The end-of-run gallery is the one place a photograph is shown properly,
+    // so it asks for a width worth looking at rather than a sprite.
+    GALLERY_WIDTH: 600,
+
+    async json(url, timeoutMs) {
         let lastError = null;
+        const budget = timeoutMs || DMG.TIMEOUT_MS;
 
         for (let attempt = 0; attempt <= DMG.RETRIES; attempt++) {
             const abort = new AbortController();
-            const timer = setTimeout(() => abort.abort(), DMG.TIMEOUT_MS);
+            const timer = setTimeout(() => abort.abort(), budget);
             try {
                 const response = await fetch(url, { signal: abort.signal });
 
@@ -71,52 +82,81 @@ const DMG = {
         return new Promise(resolve => setTimeout(resolve, ms));
     },
 
-    // Photographs are loaded here rather than through Phaser's loader, for two
-    // reasons: the image host is intermittently flaky and needs retrying, and
-    // doing it before Phaser starts means the whole museum — every room — is
-    // in memory by the time the game appears.
-    async loadPhotos(records, onProgress) {
-        const report = onProgress || (() => {});
-        const withPhotos = records.filter(record => record.sprite);
-        let done = 0;
+    // How many requests are allowed in flight at once. Thirty-two parallel
+    // draws did work, until a burst of testing started coming back empty —
+    // the API evidently has a ceiling, and a boot that quietly returns no
+    // objects is much worse than one that takes another second.
+    CONCURRENCY: 8,
 
-        // Nothing to fetch — the collection came back without representations,
-        // which happens while the museum's image service is unavailable.
-        if (!withPhotos.length) {
-            report(1, 'Geen foto\u2019s beschikbaar \u2014 de objecten worden getekend');
-            return 0;
+    // Run tasks with a cap on how many are in flight. Results keep the order
+    // of the input, and a rejection becomes null rather than sinking the rest.
+    async pool(tasks, limit) {
+        const results = new Array(tasks.length).fill(null);
+        let next = 0;
+
+        const worker = async () => {
+            while (next < tasks.length) {
+                const index = next++;
+                try {
+                    results[index] = await tasks[index]();
+                } catch (error) {
+                    results[index] = null;
+                }
+            }
+        };
+
+        await Promise.all(
+            Array.from({ length: Math.min(limit || DMG.CONCURRENCY, tasks.length) }, worker)
+        );
+        return results;
+    },
+
+    // Walk a IIIF presentation manifest down to the image service that serves
+    // it. The service url is the useful one: unlike the resource url, it can be
+    // asked for any size.
+    async spriteViaManifest(manifestUrl) {
+        let manifest;
+        try {
+            manifest = await DMG.json(manifestUrl, DMG.MANIFEST_TIMEOUT_MS);
+        } catch (error) {
+            return null;
         }
 
-        await Promise.all(withPhotos.map(async record => {
-            record.image = await DMG.loadImage(record.sprite);
-            done++;
-            report(done / withPhotos.length, 'Foto\u2019s van de objecten laden\u2026');
-        }));
+        for (const sequence of DMG.list(manifest.sequences)) {
+            for (const canvas of DMG.list(sequence.canvases)) {
+                for (const image of DMG.list(canvas.images)) {
+                    const service = (image.resource || {}).service;
+                    const base = service && service['@id'];
+                    if (base) return base + '/full/' + DMG.GALLERY_WIDTH + ',/0/default.jpg';
+                }
+            }
+        }
+        return null;
+    },
 
-        return withPhotos.filter(record => record.image).length;
+    // One attempt, no retry and no warning.
+    tryImage(url) {
+        return new Promise(resolve => {
+            const candidate = new Image();
+            candidate.crossOrigin = 'anonymous';
+            candidate.onload = () => resolve(candidate);
+            candidate.onerror = () => resolve(null);
+            candidate.src = url;
+        });
     },
 
     // crossOrigin is essential: without it the pixels cannot be read back out
-    // of a canvas, which is the whole pixelation step. The IIIF host sends
+    // of a canvas, which is the whole pixelation step. Both IIIF hosts send
     // Access-Control-Allow-Origin: *.
-    loadImage(url) {
-        return new Promise(async resolve => {
-            for (let attempt = 0; attempt <= DMG.RETRIES; attempt++) {
-                const image = await new Promise(done => {
-                    const candidate = new Image();
-                    candidate.crossOrigin = 'anonymous';
-                    candidate.onload = () => done(candidate);
-                    candidate.onerror = () => done(null);
-                    candidate.src = url;
-                });
+    async loadImage(url) {
+        for (let attempt = 0; attempt <= DMG.RETRIES; attempt++) {
+            const image = await DMG.tryImage(url);
+            if (image) return image;
+            if (attempt < DMG.RETRIES) await DMG.pause(400 * (attempt + 1));
+        }
 
-                if (image) return resolve(image);
-                if (attempt < DMG.RETRIES) await DMG.pause(400 * (attempt + 1));
-            }
-
-            console.warn('Museumdex: foto niet geladen na ' + (DMG.RETRIES + 1) + ' pogingen — ' + url);
-            resolve(null);
-        });
+        console.warn('Museumdex: foto niet geladen na ' + (DMG.RETRIES + 1) + ' pogingen — ' + url);
+        return null;
     },
 
     // JSON-LD gives a bare object where there is one value and an array where
@@ -152,6 +192,81 @@ const DMG = {
     // fair stand-in for most photo-less objects. Anything else gets the crate,
     // which reads as "not unpacked yet" rather than pretending to be a
     // specific thing.
+    // ---- Rarity ------------------------------------------------------
+    // The museum publishes an object count for every one of its 687 type
+    // names, which is a rarity table sitting in plain sight. A `bord
+    // (vaatwerk)` is one of 770; plenty of types have exactly one object.
+    //
+    // Rarest-type-wins, because that is the most specific thing the catalogue
+    // says about an object: a `stapeldoos` that is also a `deksel` is
+    // interesting for being a stacking box, not for having a lid.
+    //
+    // The thresholds were measured, not guessed, and then measured again. The
+    // first set was derived from the count of a single type and turned out far
+    // too generous once rarest-of-several was applied — objects carry 1.47
+    // types on average, so taking the minimum drags everything rarer, and a
+    // museum of sixteen was landing two Unicums. Sampled over 82 real draws,
+    // these land a random object at roughly:
+    //
+    //   Unicum          2%    (about one museum in three)
+    //   Zeer zeldzaam  11%
+    //   Zeldzaam       15%
+    //   Ongewoon       18%
+    //   Gewoon         54%
+    TIERS: [
+        { key: 'unicum',   label: 'Unicum',        max: 1,        color: '#f5c451' },
+        { key: 'zeer',     label: 'Zeer zeldzaam', max: 5,        color: '#d47ae8' },
+        { key: 'zeldzaam', label: 'Zeldzaam',      max: 20,       color: '#5aa9e6' },
+        { key: 'ongewoon', label: 'Ongewoon',      max: 80,       color: '#4cc46a' },
+        { key: 'gewoon',   label: 'Gewoon',        max: Infinity, color: '#9a94a8' }
+    ],
+
+    typeCounts: null,
+
+    // One request for the whole table. Fetched alongside the objects rather
+    // than after them, so it costs no extra wall-clock.
+    async loadTypeCounts() {
+        try {
+            const index = await DMG.json(DMG.BASE + '/types');
+            const counts = new Map();
+
+            DMG.list(index['hydra:member']).forEach(entry => {
+                const label = entry['rdfs:label'];
+                const count = entry.object_count;
+                if (label && typeof count === 'number') counts.set(label.toLowerCase(), count);
+            });
+
+            DMG.typeCounts = counts;
+            return counts.size;
+        } catch (error) {
+            // No table means no rarity shown, which is a missing ornament
+            // rather than a broken game.
+            console.warn('Museumdex: typeregister niet geladen —', error.message);
+            DMG.typeCounts = null;
+            return 0;
+        }
+    },
+
+    rarityFor(types) {
+        if (!DMG.typeCounts || !types || !types.length) return null;
+
+        let count = Infinity;
+        let rarestType = null;
+
+        types.forEach(type => {
+            const found = DMG.typeCounts.get(String(type).toLowerCase());
+            if (found !== undefined && found < count) {
+                count = found;
+                rarestType = type;
+            }
+        });
+
+        if (!Number.isFinite(count)) return null;
+
+        const tier = DMG.TIERS.find(t => count <= t.max);
+        return { count: count, type: rarestType, key: tier.key, label: tier.label, color: tier.color };
+    },
+
     // ---- Categories, for when there is no photograph ----------------
     // The museum's image service goes down independently of the data API, and
     // when it does the catalogue text still arrives. So rather than dropping
@@ -278,11 +393,12 @@ const DMG = {
             // and when it does the catalogue text still arrives — so an
             // exhibit without a photo is still a real exhibit.
             art: DMG.fallbackArtFor(object),
-            // The dex shows the 400px render; the plinth sprite only ever
-            // needs 64px, and asking IIIF for that keeps the boot download to
-            // about a kilobyte per exhibit.
+            // Kept for the end-of-run gallery and the export, never for the
+            // plinths. The museum's photograph is only shown at a size where it
+            // is worth looking at; on a 20px plinth it survived as a smudge, and
+            // downloading sixteen of them delayed every boot for that.
             photo: source,
-            sprite: DMG.iiifWidth(source, 64),
+            manifest: (object['crm:P129i_is_subject_of'] || {})['@id'] || null,
             credit: image ? (image['crm:P3_has_note'] || null) : null,
             types: DMG.list(object['crm:P2_has_type']).map(DMG.label).filter(Boolean),
             materials: DMG.list(object['crm:P45_consists_of']).map(DMG.label).filter(Boolean),
@@ -298,13 +414,16 @@ const DMG = {
         };
     },
 
-    // One uniformly random object out of the whole collection: ask for a page
-    // of exactly one item, at a random page number.
-    async randomObject() {
+    // One uniformly random object, complete. fullRecord=true is the whole
+    // reason this is a single request: without it the listing returns a label
+    // and a manifest id, and every exhibit costs a second fetch for its
+    // description. With it, one page of one item is one finished record.
+    async randomFullRecord() {
         const page = 1 + Math.floor(Math.random() * DMG.TOTAL_OBJECTS);
-        const listing = await DMG.json(DMG.BASE + '/objects?page=' + page + '&itemsPerPage=1');
-        const member = DMG.list(listing['hydra:member'])[0];
-        return member ? String(member['@id'] || '').split('/').pop() : null;
+        const listing = await DMG.json(
+            DMG.BASE + '/objects?fullRecord=true&itemsPerPage=1&page=' + page
+        );
+        return DMG.list(listing['hydra:member'])[0] || null;
     },
 
     // Catalogue numbers of the form 1998-0024_044-755 are the 44th of 755
@@ -314,61 +433,51 @@ const DMG = {
         return String(pid).split('_')[0];
     },
 
+    // A third of the collection is components of a parent record — a single
+    // chair's four loose sports, a service's every saucer. They make thin
+    // exhibits, so they lose to a whole object whenever there is one to spare.
+    isComponent(object) {
+        return !!object['crm:P46i_forms_part_of'];
+    },
+
     // A different museum every launch. Each exhibit is drawn independently
-    // from the full collection rather than off one page — consecutive
-    // catalogue numbers are usually variants of the same object, so a single
-    // page would hand back four views of the same album.
-    //
-    // Candidates are over-sampled because a record can turn out to have no
-    // photograph or no description, which makes a poor exhibit and gets it
-    // dropped.
+    // rather than off one page: consecutive catalogue numbers are usually
+    // variants of the same object, so a single page would hand back four views
+    // of the same album.
     async randomExhibits(count, onProgress) {
         const report = onProgress || (() => {});
 
-        // Draw twice what is needed, since records with no photograph or no
-        // description get dropped further down.
+        // Over-sampled, because a record can turn out to have no description,
+        // to duplicate a set already drawn, or to be a component.
         const wanted = count * 2;
         let drawn = 0;
 
-        const draws = await Promise.allSettled(
-            Array.from({ length: wanted }, () => DMG.randomObject().finally(() => {
+        const draws = await DMG.pool(
+            Array.from({ length: wanted }, () => () => DMG.randomFullRecord().finally(() => {
                 drawn++;
-                report(drawn / wanted * 0.4, 'Objecten kiezen uit de collectie\u2026');
+                report(drawn / wanted, 'Objecten kiezen uit de collectie\u2026');
             }))
         );
 
-        const pids = [];
+        const whole = [];
+        const parts = [];
         const seenSets = new Set();
-        draws.forEach(draw => {
-            const pid = draw.status === 'fulfilled' ? draw.value : null;
-            if (!pid) return;
 
-            const set = DMG.setOf(pid);
+        draws.forEach(object => {
+            if (!object) return;
+
+            const record = DMG.normalise(object);
+            if (!record.name || !record.description) return;
+
+            const set = DMG.setOf(record.pid);
             if (seenSets.has(set)) return;
             seenSets.add(set);
-            pids.push(pid);
+
+            (DMG.isComponent(object) ? parts : whole).push(record);
         });
 
-        // Detail requests are independent, so they go out together rather than
-        // one after another. allSettled, not all: one dead record should cost
-        // one exhibit, not the whole floor.
-        let fetched = 0;
-        const settled = await Promise.allSettled(
-            pids.map(pid => DMG.json(DMG.BASE + '/object/' + pid).finally(() => {
-                fetched++;
-                report(0.4 + fetched / pids.length * 0.6, 'Objectgegevens ophalen\u2026');
-            }))
-        );
-
-        // A name and a description are what make an exhibit; the photograph is
-        // a bonus. Requiring one would mean an image-service outage threw away
-        // every real object and left the player with demo pieces, when the
-        // catalogue text was there the whole time.
-        return settled
-            .filter(result => result.status === 'fulfilled')
-            .map(result => DMG.normalise(result.value))
-            .filter(record => record.name && record.description)
-            .slice(0, count);
+        // Whole objects first, components only to fill the remaining plinths.
+        return whole.concat(parts).slice(0, count);
     }
 };
 
@@ -534,6 +643,18 @@ const PALETTE = {
 };
 
 // Create a canvas-backed texture and hand its 2D context to a draw function.
+// px() is the workhorse for all the chunky pixel drawing below. Factored out of
+// makeTexture() because a texture can also be redrawn in place, once a
+// photograph turns up after the museum has already opened.
+function pixelPainter(ctx) {
+    return (x, y, w, h, color, alpha) => {
+        ctx.globalAlpha = (alpha === undefined) ? 1 : alpha;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, w, h);
+        ctx.globalAlpha = 1;
+    };
+}
+
 function makeTexture(scene, key, width, height, draw) {
     if (scene.textures.exists(key)) return scene.textures.get(key);
 
@@ -544,15 +665,7 @@ function makeTexture(scene, key, width, height, draw) {
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
-    // px() is the workhorse for all the chunky pixel drawing below.
-    const px = (x, y, w, h, color, alpha) => {
-        ctx.globalAlpha = (alpha === undefined) ? 1 : alpha;
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, w, h);
-        ctx.globalAlpha = 1;
-    };
-
-    draw(px, ctx);
+    draw(pixelPainter(ctx), ctx);
     return scene.textures.addCanvas(key, canvas);
 }
 
@@ -828,205 +941,16 @@ function drawUnknownExhibit(px) {
     px(6, 21, 20, 1, '#000000', 0.16);   // contact shadow on the plinth top
 }
 
-// ------------------------------------------
-// Museum photographs, reduced to sprite scale
-// ------------------------------------------
-// The plinth art has to sit next to hand-drawn pixels without looking like a
-// pasted JPEG, so a 64px IIIF render goes through three steps: downsample with
-// smoothing off, lift the photographer's backdrop, and collapse the result
-// onto a coarse palette.
-
-// The space above the plinth top, in texture pixels.
-const PHOTO_BOX = { x: 6, y: 3, w: 20, h: 17 };
-
-function drawPhotoExhibit(ctx, sourceImage) {
-    const scale = Math.min(PHOTO_BOX.w / sourceImage.width, PHOTO_BOX.h / sourceImage.height);
-    const width = Math.max(1, Math.round(sourceImage.width * scale));
-    const height = Math.max(1, Math.round(sourceImage.height * scale));
-
-    // Centred horizontally, but bottom-aligned — the piece should stand on the
-    // plinth rather than float above it.
-    const x = PHOTO_BOX.x + Math.floor((PHOTO_BOX.w - width) / 2);
-    const y = PHOTO_BOX.y + (PHOTO_BOX.h - height);
-
-    // Downsample on a canvas of its own, so the backdrop lift below only ever
-    // reads the photograph and never the plinth already drawn underneath.
-    const stage = document.createElement('canvas');
-    stage.width = width;
-    stage.height = height;
-
-    const stageCtx = stage.getContext('2d');
-
-    // Smoothing ON for this one step, which is the opposite of what pixel art
-    // usually wants. 64px down to 20px is worse than a 3:1 ratio: sampling
-    // single pixels throws away five of every six and comes out as confetti,
-    // where averaging each block gives a clean, readable shape. Posterising
-    // straight after is what makes the result read as pixel art.
-    stageCtx.imageSmoothingEnabled = true;
-    stageCtx.imageSmoothingQuality = 'high';
-    stageCtx.drawImage(sourceImage, 0, 0, width, height);
-
-    const pixels = stageCtx.getImageData(0, 0, width, height);
-    liftBackdrop(pixels);
-    posterise(pixels);
-    stageCtx.putImageData(pixels, 0, 0);
-
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(stage, x, y);
-}
-
-// Collection photography is shot on a plain sweep, so the backdrop can be
-// removed by flooding inwards from the edges and clearing anything close to
-// the colour found there. Flooding rather than a flat colour match is the
-// point: a white porcelain vase on a white backdrop would otherwise come out
-// full of holes.
-//
-// The tolerance is deliberately tight. Museum objects are very often pale and
-// neutral — the same colour family as the sweep they are shot on — so a
-// generous threshold eats the object instead of the background. At 60 it
-// removed a faience plate and most of a radiogram; at this value both survive,
-// at the cost of leaving a little backdrop where the studio lighting fell off.
-const BACKDROP_TOLERANCE = 18;
-
-function liftBackdrop(pixels) {
-    const width = pixels.width;
-    const height = pixels.height;
-    const data = pixels.data;
-
-    // Reference colour: the median of the border pixels. Median rather than
-    // mean, so one dark corner cannot drag the reference along with it.
-    const reds = [];
-    const greens = [];
-    const blues = [];
-    const sample = (x, y) => {
-        const i = (y * width + x) * 4;
-        reds.push(data[i]);
-        greens.push(data[i + 1]);
-        blues.push(data[i + 2]);
-    };
-    for (let x = 0; x < width; x++) { sample(x, 0); sample(x, height - 1); }
-    for (let y = 0; y < height; y++) { sample(0, y); sample(width - 1, y); }
-
-    const median = values => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
-    const red = median(reds);
-    const green = median(greens);
-    const blue = median(blues);
-
-    const isBackdrop = (i) => {
-        const dr = data[i] - red;
-        const dg = data[i + 1] - green;
-        const db = data[i + 2] - blue;
-        return Math.sqrt(dr * dr + dg * dg + db * db) <= BACKDROP_TOLERANCE;
-    };
-
-    // Seed the flood with every border pixel, then walk inwards. The queue
-    // holds x and y as alternating entries rather than as pairs — one flat
-    // array instead of thousands of throwaway ones.
-    const seen = new Uint8Array(width * height);
-    const queue = [];
-    for (let x = 0; x < width; x++) queue.push(x, 0, x, height - 1);
-    for (let y = 0; y < height; y++) queue.push(0, y, width - 1, y);
-
-    while (queue.length) {
-        const y = queue.pop();
-        const x = queue.pop();
-        if (x < 0 || y < 0 || x >= width || y >= height) continue;
-
-        const position = y * width + x;
-        if (seen[position]) continue;
-        seen[position] = 1;
-
-        const i = position * 4;
-        if (!isBackdrop(i)) continue;
-
-        data[i + 3] = 0;
-        queue.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
-    }
-
-    featherEdge(pixels, red, green, blue);
-}
-
-// Averaging the downsample leaves a ring of half-object, half-backdrop pixels
-// that the tight flood above will not touch, and it reads as a white halo. So
-// a second, looser pass runs afterwards — but each round may only advance one
-// pixel inward from what is already transparent, and only two rounds run. That
-// bound is what keeps it honest: it can shave a two-pixel fringe off the
-// silhouette, and it cannot tunnel into the middle of a pale object the way a
-// looser flood would.
-const FEATHER_TOLERANCE = 45;
-const FEATHER_PASSES = 2;
-
-function featherEdge(pixels, red, green, blue) {
-    const width = pixels.width;
-    const height = pixels.height;
-    const data = pixels.data;
-
-    for (let pass = 0; pass < FEATHER_PASSES; pass++) {
-        const doomed = [];
-
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const i = (y * width + x) * 4;
-                if (data[i + 3] === 0) continue;
-
-                const dr = data[i] - red;
-                const dg = data[i + 1] - green;
-                const db = data[i + 2] - blue;
-                if (Math.sqrt(dr * dr + dg * dg + db * db) > FEATHER_TOLERANCE) continue;
-
-                // Only a pixel already touching cleared space may go, which is
-                // what limits each pass to one pixel of advance.
-                const touchesCleared =
-                    (x + 1 < width  && data[(y * width + x + 1) * 4 + 3] === 0) ||
-                    (x - 1 >= 0     && data[(y * width + x - 1) * 4 + 3] === 0) ||
-                    (y + 1 < height && data[((y + 1) * width + x) * 4 + 3] === 0) ||
-                    (y - 1 >= 0     && data[((y - 1) * width + x) * 4 + 3] === 0);
-
-                if (touchesCleared) doomed.push(i);
-            }
-        }
-
-        // Cleared together, after the scan — clearing as we went would let one
-        // pass cascade across the whole sprite in a single sweep.
-        doomed.forEach(i => { data[i + 3] = 0; });
-    }
-}
-
-// Six levels per channel keeps an object readable at twenty pixels wide while
-// losing the photographic gradients that would give it away next to the drawn
-// art.
-function posterise(pixels) {
-    const data = pixels.data;
-    const step = 255 / 5;
-
-    for (let i = 0; i < data.length; i += 4) {
-        if (data[i + 3] === 0) continue;
-        data[i]     = Math.round(data[i] / step) * step;
-        data[i + 1] = Math.round(data[i + 1] / step) * step;
-        data[i + 2] = Math.round(data[i + 2] / step) * step;
-    }
-}
-
 // One texture per exhibit in play. A piece with a photograph loaded is
 // rendered from it; the offline fallbacks fall back to their drawn art.
 function makeExhibitTextures(scene) {
     Object.keys(MuseumAPI).forEach(id => {
         const record = MuseumAPI[id];
-        const tile = tileValueFor(id);
-        const photoKey = 'photo-' + tile;
 
-        // The photo may be missing because the record had none, or because the
-        // load failed — both land here as "no texture", and both draw instead.
-        const photo = scene.textures.exists(photoKey)
-            ? scene.textures.get(photoKey).getSourceImage()
-            : null;
-
-        makeTexture(scene, 'exhibit-' + tile, 32, 32, (px, ctx) => {
+        makeTexture(scene, 'exhibit-' + tileValueFor(id), 32, 32, (px) => {
             drawPedestal(px);
 
-            if (photo) {
-                drawPhotoExhibit(ctx, photo);
-            } else if (PROCEDURAL_ART[record.art]) {
+            if (PROCEDURAL_ART[record.art]) {
                 PROCEDURAL_ART[record.art](px);
             } else {
                 drawUnknownExhibit(px);
@@ -1210,6 +1134,21 @@ function makeMarkerTextures(scene) {
         px(4, 6, 6, 2, PALETTE.gold);
         px(5, 8, 4, 2, PALETTE.goldDark);
         px(6, 10, 2, 2, PALETTE.goldDark);
+    });
+
+    // A small gem that sits over the rarest plinths, so a Unicum is worth
+    // walking to before MARLOT gets her shot. Drawn twice, in two tints.
+    [['gem-unicum', PALETTE.gold, PALETTE.goldDark],
+     ['gem-zeer', '#d47ae8', '#8e3ea8']].forEach(([key, bright, dark]) => {
+        makeTexture(scene, key, 10, 12, (px) => {
+            px(4, 0, 2, 2, bright);
+            px(2, 2, 6, 2, bright);
+            px(1, 4, 8, 3, bright);
+            px(2, 7, 6, 2, dark);
+            px(3, 9, 4, 2, dark);
+            px(4, 11, 2, 1, dark);
+            px(3, 3, 2, 2, '#ffffff', 0.7);
+        });
     });
 
     // Tick badge stamped on exhibits already in the Museumdex.
@@ -1559,25 +1498,7 @@ class MuseumScene extends Phaser.Scene {
         super('MuseumScene');
     }
 
-    // Register the photographs that DMG.loadPhotos() already fetched. They are
-    // plain HTMLImageElements, so they become textures with no loading step —
-    // which is why there is no preload() here and why a room change later can
-    // never wait on the network.
-    registerPhotos() {
-        Object.keys(MuseumAPI).forEach(id => {
-            const record = MuseumAPI[id];
-            const key = 'photo-' + tileValueFor(id);
-
-            if (record.image && !this.textures.exists(key)) {
-                this.textures.addImage(key, record.image);
-            }
-        });
-    }
-
     create() {
-        // Photographs first — makeExhibitTextures() looks for them by name.
-        this.registerPhotos();
-
         // --- Build every texture before anything tries to use one ---
         makeFloorTexture(this, 'floor-a', PALETTE.marbleA);
         makeFloorTexture(this, 'floor-b', PALETTE.marbleB);
@@ -1757,6 +1678,8 @@ class MuseumScene extends Phaser.Scene {
                     this.roomLayer.add(sprite);
                     this.exhibitSprites[x + ',' + y] = sprite;
 
+                    this.markRarity(x, y, tileType);
+
                     // Anything already in the dex keeps its tick when you come
                     // back to the room that holds it.
                     if (GameState.sessionPokedex.has('exhibit_' + tileType)) {
@@ -1804,6 +1727,36 @@ class MuseumScene extends Phaser.Scene {
             this.buildRoom(target, exit.at);
             this.cameras.main.fadeIn(160, 0, 0, 0);
             showToast(ROOMS[target].name);
+        });
+    }
+
+    // A gem floating over the two rarest tiers. Deliberately visible before you
+    // inspect anything: it tells you which plinth to reach first, which is what
+    // turns rarity from a label in the dex into a reason to cross the room.
+    markRarity(x, y, tileValue) {
+        const rarity = (MuseumAPI['exhibit_' + tileValue] || {}).rarity;
+        if (!rarity) return;
+
+        const key = rarity.key === 'unicum' ? 'gem-unicum'
+                  : rarity.key === 'zeer'   ? 'gem-zeer'
+                  : null;
+        if (!key) return;
+
+        const gem = this.add.image(
+            x * this.tileSize + 8,
+            y * this.tileSize + 7,
+            key
+        );
+        gem.setDepth(6);
+        this.roomLayer.add(gem);
+
+        this.tweens.add({
+            targets: gem,
+            y: gem.y - 3,
+            duration: 900,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
         });
     }
 
@@ -2028,7 +1981,16 @@ class MuseumScene extends Phaser.Scene {
         if (isNew) {
             this.badgeExhibits(target.tile);
             updateProgressCounter();
-            showToast('NIEUW! Opgenomen in je Museumdex');
+
+            // A common find gets the plain line; a rare one is worth saying out
+            // loud, since it is the reason to keep looking.
+            const rarity = exhibitData.rarity;
+            if (rarity && (rarity.key === 'unicum' || rarity.key === 'zeer')) {
+                showToast(rarity.label.toUpperCase() + '! Slechts ' + rarity.count +
+                    ' in de hele collectie');
+            } else {
+                showToast('NIEUW! Opgenomen in je Museumdex');
+            }
         }
 
         openDialogue(exhibitData.name, trimForDialogue(exhibitData.description), isNew);
@@ -2189,6 +2151,7 @@ function togglePokedex() {
                             : '') +
                         '<div class="dex-text">' +
                             '<div class="dex-name">' + escapeHtml(entry.name) + '</div>' +
+                            rarityHtml(entry) +
                             factsHtml(entry) +
                             '<div class="dex-desc">' + escapeHtml(entry.description) + '</div>' +
                             creditHtml(entry) +
@@ -2222,6 +2185,20 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+// The rarity chip, coloured by tier, with the count that earned it. Nothing is
+// shown when the type register did not load or the object's type is not in it —
+// an invented rarity would be worse than none.
+function rarityHtml(entry) {
+    const rarity = entry.rarity;
+    if (!rarity) return '';
+
+    return '<div class="dex-rarity" style="border-color:' + rarity.color +
+           ';color:' + rarity.color + '">' +
+           escapeHtml(rarity.label) +
+           '<span>' + rarity.count + ' in de collectie</span>' +
+           '</div>';
 }
 
 // Only the fields this particular object actually has — coverage across ten
@@ -2264,6 +2241,107 @@ function creditHtml(entry) {
         bits.push('<a href="' + encodeURI(entry.url) + '" target="_blank" rel="noopener">collectieregistratie</a>');
     }
     return bits.length ? '<div class="dex-credit">' + bits.join(' &middot; ') + '</div>' : '';
+}
+
+// ------------------------------------------
+// Exporting the Museumdex
+// ------------------------------------------
+// The dex on screen shows what fits in a pixel font. This writes out everything
+// the museum holds on the objects you found, fetched fresh at the moment you
+// press the button rather than reused from the copies the game has been
+// carrying — so the file is the catalogue as it stands now, complete, not the
+// handful of fields the game happens to render.
+
+let exportRunning = false;
+
+async function downloadMuseumdex() {
+    if (exportRunning) return;
+
+    const button = document.getElementById('dex-download');
+    const found = Object.keys(MuseumAPI)
+        .filter(key => GameState.sessionPokedex.has(key))
+        .map(key => ({ key: key, entry: MuseumAPI[key] }));
+
+    if (!found.length) {
+        showToast('Je hebt nog niets gevonden om te bewaren');
+        return;
+    }
+
+    exportRunning = true;
+    const original = button ? button.innerText : '';
+    const setLabel = text => { if (button) button.innerText = text; };
+    setLabel('Ophalen\u2026');
+
+    let done = 0;
+    const records = await DMG.pool(found.map(({ key, entry }) => async () => {
+        // A fallback exhibit has no object number, so there is nothing live to
+        // fetch — it is written out as-is.
+        const live = entry.pid
+            ? await DMG.json(DMG.BASE + '/object/' + entry.pid).catch(() => null)
+            : null;
+
+        done++;
+        setLabel('Ophalen\u2026 ' + done + '/' + found.length);
+
+        const room = ROOMS.find(r => r.exhibitTiles.includes(tileValueFor(key)));
+        return {
+            museumdexNumber: tileValueFor(key) - 1,
+            objectNumber: entry.pid || null,
+            zaal: room ? room.name : null,
+            zeldzaamheid: entry.rarity
+                ? { tier: entry.rarity.label, aantalInCollectie: entry.rarity.count, type: entry.rarity.type }
+                : null,
+            catalogusrecord: live,
+            // Only when the live fetch failed, so the file always says
+            // something about the object rather than nothing.
+            spelgegevens: live ? undefined : {
+                naam: entry.name,
+                beschrijving: entry.description,
+                maker: entry.maker,
+                opmerking: 'Live ophalen is mislukt; dit zijn de gegevens uit het spel.'
+            }
+        };
+    }), 4);
+
+    const payload = {
+        museumdex: {
+            speler: GameState.playerName,
+            gevonden: found.length,
+            totaalInDitMuseum: TOTAL_EXHIBITS,
+            geexporteerdOp: new Date().toISOString()
+        },
+        bron: {
+            api: 'https://data.designmuseumgent.be/v2',
+            documentatie: 'https://api.designmuseumgent.be/v2/',
+            rechten: 'Zie de collectieregistratie per object voor rechten en fotocredits.'
+        },
+        objecten: records.filter(Boolean)
+    };
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    saveFile('museumdex-' + stamp + '.json',
+             JSON.stringify(payload, null, 2),
+             'application/json');
+
+    setLabel(original || 'Download volledige data');
+    exportRunning = false;
+    showToast(records.filter(Boolean).length + ' objecten bewaard');
+}
+
+// Hand the browser a file. The object url is revoked afterwards, or the blob
+// stays in memory for the life of the page.
+function saveFile(filename, text, mime) {
+    const blob = new Blob([text], { type: mime + ';charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ------------------------------------------
@@ -2333,6 +2411,104 @@ function showGameOver(stats) {
     document.getElementById('go-time').innerText = formatTime(stats.ms);
     document.getElementById('go-threat').innerText = Math.round(stats.threat * 100) + '%';
     document.getElementById('gameover-screen').style.display = 'flex';
+
+    buildEndGallery();
+}
+
+// ------------------------------------------
+// The end-of-run gallery
+// ------------------------------------------
+// The one place the museum's own photographs are shown, and the reason the
+// plinths do not bother with them: at 600px a Gallé vase is worth looking at,
+// where the same photograph crushed onto a 20px plinth was a smudge.
+//
+// Photographs are fetched only now, once the run is over and the player is
+// reading rather than waiting. A plain <img> is used rather than a canvas, so
+// no CORS handshake is needed — display does not require reading the pixels.
+
+function buildEndGallery() {
+    const list = document.getElementById('go-gallery');
+    const empty = document.getElementById('go-gallery-empty');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    const found = Object.keys(MuseumAPI)
+        .filter(key => GameState.sessionPokedex.has(key))
+        .map(key => MuseumAPI[key]);
+
+    if (empty) empty.style.display = found.length ? 'none' : 'block';
+    if (!found.length) return;
+
+    found.forEach(entry => list.appendChild(galleryCard(entry)));
+    upgradeGalleryPhotos(found);
+}
+
+function galleryCard(entry) {
+    const card = document.createElement('div');
+    card.className = 'go-card';
+
+    const frame = document.createElement('div');
+    frame.className = 'go-card-frame';
+
+    if (entry.photo) {
+        const img = document.createElement('img');
+        img.alt = entry.name || '';
+        img.loading = 'lazy';
+        // A failure is expected while the museum is between image hosts, so it
+        // hides the frame rather than leaving a broken-image icon.
+        img.addEventListener('error', () => { frame.classList.add('is-empty'); });
+        img.src = DMG.iiifWidth(entry.photo, DMG.GALLERY_WIDTH) || entry.photo;
+        frame.appendChild(img);
+        card.dataset.pid = entry.pid || '';
+    } else {
+        frame.classList.add('is-empty');
+    }
+
+    const body = document.createElement('div');
+    body.className = 'go-card-body';
+    body.innerHTML =
+        '<div class="go-card-name">' + escapeHtml(entry.name) + '</div>' +
+        rarityHtml(entry) +
+        (entry.maker ? '<div class="go-card-maker">' + escapeHtml(entry.maker) + '</div>' : '') +
+        '<div class="go-card-desc">' + escapeHtml(entry.description) + '</div>';
+
+    card.appendChild(frame);
+    card.appendChild(body);
+    return card;
+}
+
+// Second chance for the photographs that failed. The IIIF manifest is the only
+// route left while the record's own image host answers 403, and it is slow —
+// a 17s median, and it fails more often than it works. Which is fine here:
+// nothing is waiting on it, and a frame that fills in twenty seconds later is
+// strictly better than one that never does.
+async function upgradeGalleryPhotos(entries) {
+    const pending = entries.filter(entry => entry.manifest);
+
+    await DMG.pool(pending.map(entry => async () => {
+        const card = document.querySelector('.go-card[data-pid="' + cssEscape(entry.pid) + '"]');
+        const frame = card && card.querySelector('.go-card-frame');
+        const img = frame && frame.querySelector('img');
+
+        // Already showing something, or the card is gone — nothing to do.
+        if (!img || !frame.classList.contains('is-empty')) return;
+
+        const url = await DMG.spriteViaManifest(entry.manifest);
+        if (!url) return;
+
+        img.addEventListener('load', () => { frame.classList.remove('is-empty'); }, { once: true });
+        img.src = url;
+    }), 4);
+}
+
+// Attribute selectors need their quotes and backslashes escaped. Object numbers
+// are tame — digits, dashes, underscores — but they come off the network, so
+// they are not trusted into a selector unescaped.
+function cssEscape(value) {
+    return String(value === null || value === undefined ? '' : value)
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"');
 }
 
 function restartRun() {
@@ -2380,11 +2556,9 @@ let game = null;
 // ------------------------------------------
 // Loading
 // ------------------------------------------
-// Two phases, one bar. The collection fetch runs before Phaser exists, then
-// Phaser downloads the photographs. Both are done before the museum is drawn,
-// so walking between rooms afterwards never waits on anything.
-
-const LOAD_FETCH_SHARE = 0.55;   // how much of the bar the API fetch owns
+// One phase: fetch the objects. Nothing else is downloaded, so the bar tracks
+// the collection fetch and nothing more. The plinths are drawn from the
+// object's category, which is why the museum can open in a couple of seconds.
 
 function setLoadProgress(fraction, message) {
     const bar = document.getElementById('boot-bar');
@@ -2426,14 +2600,19 @@ async function startGame() {
     document.getElementById('boot-screen').style.display = 'flex';
     setLoadProgress(0, 'Verbinden met Design Museum Gent\u2026');
 
+    // The type register rides along with the object draw rather than after it,
+    // so the rarity table costs no extra wall-clock.
     let records = [];
-    try {
-        records = await DMG.randomExhibits(EXHIBIT_SLOTS, (fraction, message) => {
-            setLoadProgress(fraction * LOAD_FETCH_SHARE, message);
-        });
-    } catch (error) {
-        console.warn('Museumdex: collectie-API onbereikbaar —', error.message);
-    }
+    const [drawn] = await Promise.all([
+        DMG.randomExhibits(EXHIBIT_SLOTS, (fraction, message) => {
+            setLoadProgress(fraction, message);
+        }).catch(error => {
+            console.warn('Museumdex: collectie-API onbereikbaar —', error.message);
+            return [];
+        }),
+        DMG.loadTypeCounts()
+    ]);
+    records = drawn;
 
     // Short of a full museum, pad rather than leave plinths that cannot be
     // inspected. The demo pieces repeat if there are more gaps than fallbacks.
@@ -2442,25 +2621,20 @@ async function startGame() {
         records.push(FALLBACK_EXHIBITS[records.length % FALLBACK_EXHIBITS.length]);
     }
 
+    // Rarity is worked out once, here, rather than on every dex render.
+    records.forEach(record => { record.rarity = DMG.rarityFor(record.types); });
+
     installExhibits(records);
     updateProgressCounter();
+    updateSourceNote(fromApi, records.length);
 
-    // Every photograph for every room, before the game starts.
-    setLoadProgress(LOAD_FETCH_SHARE, 'Foto\u2019s van de objecten laden\u2026');
-    const photosLoaded = await DMG.loadPhotos(records, (fraction, message) => {
-        setLoadProgress(LOAD_FETCH_SHARE + fraction * (1 - LOAD_FETCH_SHARE), message);
-    });
-    console.log('Museumdex: ' + photosLoaded + ' foto\u2019s geladen van ' + records.length + ' objecten');
-    updateSourceNote(fromApi, records.length, photosLoaded);
-
+    setLoadProgress(1, 'Klaar');
     game = new Phaser.Game(config);
     initDangerControls();
 }
 
-// Says where this run's exhibits came from, under the game window. The data and
-// the photographs come from two different services that fail independently, so
-// they are reported separately rather than as one number.
-function updateSourceNote(fromApi, total, photos) {
+// Says where this run's exhibits came from, under the game window.
+function updateSourceNote(fromApi, total) {
     const note = document.getElementById('source-note');
     if (!note) return;
 
@@ -2476,12 +2650,8 @@ function updateSourceNote(fromApi, total, photos) {
         ? '1 van de ' + total + ' objecten komt live uit de ' + link + '.'
         : fromApi + ' van de ' + total + ' objecten komen live uit de ' + link + '.';
 
-    if (photos === 0) {
-        text += ' De fotoservice van het museum is momenteel onbereikbaar, ' +
-                'dus de objecten worden getekend \u2014 de teksten zijn wel echt.';
-    } else if (photos < fromApi) {
-        text += ' Van ' + photos + ' ervan is een foto geladen; de rest wordt getekend.';
-    }
+    text += ' De sokkels zijn getekend naar het soort object; de echte foto\u2019s ' +
+            'zie je in het overzicht na je bezoek.';
 
     note.innerHTML = text + ' Herlaad de pagina voor een nieuwe selectie.';
 }

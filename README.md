@@ -48,21 +48,54 @@ published objects.
 Everything API-facing lives in the `DMG` object in `game.js`. Three things about
 the API shaped it:
 
-**The collection listing is thin.** `/id/objects` returns a label and a IIIF
-manifest id and nothing else — no photograph, no description. So each exhibit
-costs one extra detail request, and the detail response is where the good
-material is: description, image, maker, materials, techniques, real dimensions,
-acquisition history.
+**`fullRecord=true` is the whole game.** By default `/id/objects` returns a
+label and a manifest id and nothing else, which makes every exhibit cost a
+second request for its description. With the flag, one page of one item is one
+finished record — description, maker, materials, techniques, real dimensions,
+acquisition history — so sixteen exhibits are sixteen requests rather than
+forty-eight.
 
 **Consecutive catalogue numbers are the same object.** `1998-0024_044-755` is
 the 44th of 755 fragments of one album. Taking a page of the collection gets you
 four views of the same thing, so each exhibit is drawn from its own random page
 and then deduplicated by catalogue prefix.
 
-**Both hosts fail intermittently.** The data API and the image host have both
-been seen to answer `500` in bursts and recover a second later, so every request
-retries twice before it counts, and a photo that never arrives costs its exhibit
-a photograph rather than taking the game down.
+**Everything fails intermittently, in different ways.** The data API and the
+image host have both answered `500` in bursts and recovered a second later, so
+requests retry twice — but not on a `4xx`, which is a decision rather than a
+hiccup. Thirty-two parallel draws worked until a burst of testing started coming
+back empty, so requests are now pooled eight at a time: a boot that quietly
+returns no objects is far worse than one that takes another second.
+
+The image hosts are worse. The API has pointed `image` at `api.collectie.gent`,
+then stopped carrying image urls at all, then pointed at
+`beeldbank-temp.stad.gent`, which answers `403` to everything including its own
+`info.json`. The only route that survived all of that is the IIIF manifest — and
+measured over 24 random objects, 29% returned one, 63% returned `504`, and the
+successes took a median of 17 seconds. Which is why the manifest is used only for
+the end-of-run gallery, where nothing is waiting on it and a frame that fills in
+twenty seconds later is better than one that never does.
+
+**Rarity comes free with the type index.** `/id/types` publishes an object count
+for all 687 type names, which is a rarity table in plain sight: a `bord
+(vaatwerk)` is one of 770, and plenty of types have exactly one object. The game
+takes the rarest of an object's types, because that is the most specific thing
+the catalogue says about it.
+
+The thresholds were measured twice. The first set came from single-type counts
+and was far too generous once rarest-of-several was applied — objects carry 1.47
+types on average, so taking the minimum drags everything rarer and a museum of
+sixteen was turning up two Unicums. Re-measured over 82 real draws, `[1, 5, 20,
+80]` lands a random object at Unicum 2%, Zeer zeldzaam 11%, Zeldzaam 15%,
+Ongewoon 18%, Gewoon 54% — so a Unicum is about one museum in three. The two
+rarest tiers float a gem over the plinth, which is what makes rarity a reason to
+cross the room rather than a label in the dex.
+
+**The plinths do not use the museum's photographs, and that is deliberate.**
+Crushing a 600px studio photograph onto a 20px plinth produced a smudge, and
+downloading sixteen of them delayed every boot to do it. The plinths are drawn
+from the object's category instead, and the real photographs appear once, at the
+end of a run, in a gallery where they are big enough to be worth looking at.
 
 **Photographs and data fail separately.** The data API serves the catalogue text
 from one service and the image URLs from another. During development the second
@@ -88,44 +121,19 @@ drawn into canvas-backed Phaser textures when the scene starts. The `px()`
 helper inside `makeTexture()` is the whole drawing API. The one exception is the
 exhibits themselves, which are photographs.
 
-**Photographs become pixel art in three steps** (`drawPhotoExhibit`). A 64px
-IIIF render is averaged down to about 20px wide — *with* smoothing on, which is
-the opposite of what pixel art usually wants, but at worse than 3:1 sampling
-single pixels throws away five of every six and comes out as confetti. Then the
-photographer's backdrop is flooded away from the edges at a deliberately tight
-tolerance, because museum objects are often as pale as the sweep they are shot
-on and a generous threshold eats the object instead. Then a bounded two-pass
-feather removes the halo that averaging left behind, and the result is
-posterised to six levels per channel.
+**The end-of-run gallery** is the one place a photograph is shown. It uses a
+plain `<img>` rather than a canvas, so no CORS handshake is needed — displaying
+an image does not require reading its pixels, only pixelating it did.
 
-**Objects with no photograph are drawn as their category.** `DMG.CATEGORIES`
-sorts an object into one of five buckets — vessel, furniture, tile, textile,
-device — and each has a hand-drawn piece. The buckets were chosen by running the
-museum's own type index (687 type names, ~12,950 objects) through the classifier
-and measuring: these five cover **90%** of the collection. The rest fall back to
-a dust sheet, and mostly deserve to — the largest unmatched types are
-`onderdeel`, `fragment` and `staal (monster)`, where a draped cover is the
-honest answer rather than a wrong guess: it is a real thing to see in a museum,
-and unlike a category stand-in it claims nothing about what is underneath. Two
-legs show beneath the hem, because without them the sheet reads as a shape in
-its own right rather than as a cover over an object, and the silhouette is
-deliberately asymmetric — a symmetrical dome reads as a shrouded figure. Those genuinely shapeless types are 3.9% of the collection on
-their own, so ~96% is the realistic ceiling for any number of categories. A
-sixth bucket was measured and dropped: sculpture, the largest candidate, was
-worth only +1.2pp, against +2.2pp for simply widening the five lists already
-there.
+**The Museumdex exports live.** The download button re-fetches each found object
+from the API at the moment it is pressed and writes out the complete catalogue
+record, not the handful of fields the pixel font can show.
 
-Matching is on word *endings*, not substrings, because Dutch compounds carry the
-category in the final element: a `champagneglas` is a glass, a `bijzettafel` is a
-table, a `stapelstoel` is a chair. Suffix matching also dodges the trap plain
-substring matching falls into, where `kandelaar` reads as a jug because `kan`
-sits inside it. Diminutives are stemmed too, which is worth real coverage —
-`schoteltje` alone is 381 objects.
-
-**Everything loads once, up front.** All 16 objects and all 16 photographs are
-fetched behind the loading screen before Phaser starts, so walking between wings
-never waits on the network. A room change only throws away tile sprites and adds
-new ones from textures that already exist.
+**Everything loads once, up front.** All 16 objects and the type index are
+fetched behind the loading screen before Phaser starts — one request per object
+and one for the whole rarity table, in parallel — so walking between wings never
+waits on the network. A room change only throws away tile sprites and adds new
+ones from textures that already exist.
 
 **Rooms are authored as text**, in `ROOMS` — `#` wall, `.` floor, `E` plinth,
 `1`-`9` a doorway keyed to that room's `exits`. Exhibit tile values are handed
