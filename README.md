@@ -67,7 +67,7 @@ Data comes from [Design Museum Gent's open API](https://data.designmuseumgent.be
 names look like `crm:P108i_was_produced_by` rather than `maker`. Roughly 9,900
 published objects.
 
-Everything API-facing lives in the `DMG` object in `game.js`. Three things about
+Everything API-facing lives in the `DMG` object in `src/api.js`. Three things about
 the API shaped it:
 
 **`fullRecord=true` is the whole game.** By default `/id/objects` returns a
