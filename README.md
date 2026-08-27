@@ -220,25 +220,37 @@ because it is the broadest.
 
 ## Performance
 
-GitHub Pages serves static files over HTTP/2 with gzip, and there is no
-bundler, so the structure above costs requests. Measured rather than assumed:
+GitHub Pages serves static files over HTTP/2 with gzip, and there is no bundler,
+so the structure above costs requests. Measured on the deployed site with the
+cache disabled, not assumed:
 
 | | before | after |
 |---|---|---|
 | files the page fetches | 2 | 27 |
-| gzipped | 39.7 KB | 49.6 KB |
-| cold time to a usable start screen | ~420 ms | ~210 ms |
+| gzipped, our code | 39.7 KB | 49.6 KB |
+| 25 files on one connection | — | ~170 ms |
+| a single file, for comparison | ~120 ms | ~120 ms |
+| cold, to a usable start screen | — | 354–662 ms |
 
-Splitting costs **+9.9 KB gzipped (+25%)**, because each file is compressed
-against its own dictionary instead of sharing one. It does not cost time: the
-scripts are classic tags, not modules, so the browser's preload scanner finds
-all of them in the initial HTML and fetches them in parallel on one connection,
-rather than discovering each `import` one round trip at a time. Cold loads came
-out *faster* after the split, which is within noise either way.
+Splitting costs **+9.9 KB gzipped**, because each file is compressed against its
+own dictionary instead of sharing one. In time it costs about **50 ms**: 25 files
+over one multiplexed HTTP/2 connection came back in ~170 ms against ~120 ms for
+one file. That is the whole penalty, and it is small because these are classic
+script tags rather than modules — the browser's preload scanner finds all 25 in
+the initial HTML and requests them together, instead of discovering each
+`import` a round trip at a time.
 
-None of this is the bottleneck. The museum API moves ~110 KB and takes 2–3
-seconds to answer, an order of magnitude more than the code. The single largest
-asset is the 230 KB logo GIF — six times all the JavaScript put together.
+None of it is the bottleneck. Of a ~520 KB cold load, our 25 files are 49 KB.
+Phaser is 244 KB from a CDN and the logo GIF is 225 KB — either one is five
+times all the game's own code. And the museum API, once the run starts, moves
+~110 KB and takes 2–3 seconds.
+
+One thing the measurement did find worth fixing: `content/nl.json` is fetched by
+`boot.js`, which cannot run until every script above it has parsed, so the
+request was perfectly serial — it started at 447 ms, one millisecond after the
+scripts finished at 446 ms. A `<link rel="preload">` in the head now starts it
+alongside them. The hint and the fetch have to agree on the url, including the
+`?v=`, or the browser treats them as two resources and downloads it twice.
 
 If load time ever does matter, the fix is `cat` and a version bump, not a
 toolchain: concatenating `src/` in script order into one file recovers the
