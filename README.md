@@ -47,7 +47,8 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000`. Phaser comes from a CDN and the museum data
 comes over the network, so the first load needs an internet connection. Without
-one the game still starts, on four hand-drawn demo pieces.
+one the game still starts, on sixteen real objects from the museum's permanent
+display — see *The offline collection* below.
 
 To check your changes:
 
@@ -126,7 +127,7 @@ host itself kept answering `200`. So a photograph is treated as a bonus, never a
 requirement: an exhibit needs only a name and a description, and when no
 photograph arrives it is drawn as its category instead. Requiring a photo would
 mean an image outage threw away sixteen real objects and left the player with
-demo pieces, with the catalogue text sitting right there.
+stand-ins, with the catalogue text sitting right there.
 
 Descriptions are **Dutch only** — 36 of 36 sampled objects had exactly one
 description, all tagged `NLD`, and titles are Dutch too. That is why the whole
@@ -142,11 +143,12 @@ No build step and no bundler: plain files, served as they are.
 index.html              markup and styling only — no copy, no game logic
 content/
   nl.json               every word the player reads
+  demo-collection.json  sixteen real objects, for when the API is unreachable
 src/
   util.js               escapeHtml, formatTime, lerp — shared, pure
   i18n.js               loads content/<lang>.json, provides t()
   api.js                the collection client: fetch, retry, pool, rarity
-  state.js              GameState, the exhibits in play, the demo pieces
+  state.js              GameState and the exhibits in play
   rooms.js              the four wings, authored as text maps
   marlot.js             difficulty curve and MARLOT's four-state cycle
   scene.js              the Phaser scene: tiles, movement, doorways
@@ -164,7 +166,6 @@ src/
       vessel.js
       device.js
       unknown.js        the dust sheet, for objects with no describable shape
-      demo.js           the four offline pieces
   ui/
     hud.js              counters, toast, the difficulty slider
     dialogue.js         the exhibit dialogue box
@@ -217,6 +218,39 @@ Then a `<script>` tag in `index.html`. **Order matters**: the first category
 whose keywords match wins, so narrower categories go first — `textile` before
 `furniture`, because a `tafellaken` is cloth, not a table. `device` is last
 because it is the broadest.
+
+### The offline collection
+
+When the collection API cannot be reached, the floor is filled from
+`content/demo-collection.json`: **sixteen objects from the museum's own
+permanent display**, saved straight out of the API, with their real catalogue
+text, makers, materials, dimensions and object numbers. The offline museum is a
+real museum, not a placeholder — earlier it was four invented pieces including a
+T-rex skull, which is not what a design collection looks like.
+
+They were curated for spread rather than picked at random:
+
+| | |
+|---|---|
+| categories | vessel 4 · furniture 5 · device 3 · textile 2 · tile 2 |
+| rarity | Unicum 2 · Zeer zeldzaam 3 · Zeldzaam 5 · Ongewoon 4 · Gewoon 2 |
+| names | Thonet, Memphis, Zanotta, Castelli, Tupperware, Stokke, Driade, AEG |
+| Belgian thread | Muller Van Severen, Studio de Saedeleer, Nova, Mosa, Delsaux |
+
+The rarity curve is deliberate: only five of the sixteen carry a gem, so the
+marker still means something. The counts are **baked into the file** rather than
+looked up, because the type index is exactly what is unreachable when this path
+runs. And the set is shuffled on load — otherwise the file's order becomes the
+floor's order and both Unicums sit in the entrance hall every time.
+
+The file is fetched **only when the live draw comes up short**, so a normal load
+never pays for its 6.5 KB.
+
+To rebuild it, take the objects from `?onDisplay=true` — the museum's own choice
+of what to exhibit — normalise them through `DMG.normalise()`, and write out the
+same shape. `tests/api_test.mjs` checks the result: every object needs a
+description, a catalogue url and a baked rarity count, every category has to be
+represented, and it fails if too many or too few objects carry a gem.
 
 ## Performance
 

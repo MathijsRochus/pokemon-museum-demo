@@ -16,7 +16,7 @@ const I18n = {
 
     // Kept in step with the ?v= on the script tags and the preload hint in
     // index.html; see the comment beside the scripts there.
-    VERSION: 8,
+    VERSION: 9,
 
     // Which language to load. A ?lang= in the url wins, so a translation can be
     // tried without touching anything.

@@ -1,6 +1,7 @@
 // The API client, the classifier, the rarity tiers and the request pool —
 // everything that can be tested without a DOM or a canvas.
-import { load, strings } from './harness.mjs';
+import fs from 'fs';
+import { ROOT, load, strings } from './harness.mjs';
 
 const table = strings();
 globalThis.Image = class { set crossOrigin(v){} set src(u){} };
@@ -11,7 +12,7 @@ const mod = await load({
          'src/art/characters.js', 'src/art/markers.js', 'src/marlot.js'],
   exports: ['DMG', 'I18n', 'classifyTypes', 'CATEGORIES', 'PROCEDURAL_ART', 'ROOMS',
             'EXHIBIT_SLOTS', 'isDoorTile', 'doorKeyFor', 'roomIndexByKey', 'roomName',
-            'MuseumAPI', 'installExhibits', 'FALLBACK_EXHIBITS', 'demoExhibit', 'isExhibitTile']
+            'MuseumAPI', 'installExhibits', 'isExhibitTile']
 });
 
 // The string table, loaded the way the browser would.
@@ -51,8 +52,8 @@ mod.CATEGORIES.forEach(c => {
   check(typeof mod.PROCEDURAL_ART[c.key] === 'function', `no drawing registered for ${c.key}`);
   check(c.keywords.length > 0, `${c.key} has no keywords`);
 });
-['skull','vase','mask','astrolabe'].forEach(n =>
-  check(typeof mod.PROCEDURAL_ART[n] === 'function', `no drawing for demo piece ${n}`));
+check(Object.keys(mod.PROCEDURAL_ART).length === mod.CATEGORIES.length,
+  `${Object.keys(mod.PROCEDURAL_ART).length} drawings for ${mod.CATEGORIES.length} categories — should match`);
 console.log(`  registry: ${mod.CATEGORIES.length} categories, ${Object.keys(mod.PROCEDURAL_ART).length} drawings`);
 
 // ---- rarity ----
@@ -132,14 +133,55 @@ const tiles = mod.ROOMS.flatMap(r => r.exhibitTiles).sort((a,b)=>a-b);
 check(tiles.every((v,i) => v === i+2), `exhibit tile values not contiguous from 2: ${tiles.join(',')}`);
 console.log(`  rooms: ${mod.ROOMS.length} wings, ${mod.EXHIBIT_SLOTS} plinths, all reachable`);
 
-// ---- demo exhibits resolve through the string table ----
-const demo = mod.demoExhibit(mod.FALLBACK_EXHIBITS[0]);
-check(demo.name === table.strings['demo.skull.name'], `demo name not from the table: ${demo.name}`);
-check(!!demo.description && !!demo.art, 'demo exhibit missing description or art');
-mod.installExhibits(Array.from({length: mod.EXHIBIT_SLOTS}, (_, i) => mod.demoExhibit(mod.FALLBACK_EXHIBITS[i % 4])));
-check(Object.keys(mod.MuseumAPI).length === mod.EXHIBIT_SLOTS, 'installExhibits did not fill every slot');
-check(tiles.every(t => mod.isExhibitTile(t)), 'a plinth tile is not recognised as an exhibit');
-console.log('  exhibits: demo text from the table, all slots installed');
+// ---- the curated offline collection ----
+// Sixteen real objects from the museum's permanent display, used when the live
+// draw comes up short. Read from disk here rather than fetched.
+const demoFile = JSON.parse(fs.readFileSync(`${ROOT}/content/demo-collection.json`, 'utf8'));
+const demo = demoFile.objects;
+
+check(demo.length === mod.EXHIBIT_SLOTS,
+  `demo collection has ${demo.length} objects, the floor has ${mod.EXHIBIT_SLOTS} plinths`);
+
+demo.forEach(o => {
+  check(!!o.pid, `a demo object has no object number`);
+  check(!!o.name && !!o.description, `${o.pid}: missing name or description`);
+  check(o.description.length >= 100, `${o.pid}: description is only ${o.description.length} chars`);
+  check(!!o.url && o.url.startsWith('https://data.designmuseumgent.be/'),
+    `${o.pid}: url is not a museum catalogue url`);
+  check(Number.isFinite(o.rarityCount), `${o.pid}: no rarity count baked in`);
+  check(o.art === null || mod.PROCEDURAL_ART[o.art] !== undefined,
+    `${o.pid}: art "${o.art}" has no drawing`);
+});
+
+// The point of curating: every category represented, and a rarity spread rather
+// than sixteen Unicums.
+const demoCats = new Set(demo.map(o => o.art || 'dust sheet'));
+mod.CATEGORIES.forEach(c => check(demoCats.has(c.key),
+  `no demo object is in the ${c.key} category`));
+
+const demoTiers = {};
+demo.forEach(o => {
+  const tier = mod.DMG.TIERS.find(t => o.rarityCount <= t.max);
+  demoTiers[tier.key] = (demoTiers[tier.key] || 0) + 1;
+});
+check(Object.keys(demoTiers).length >= 4,
+  `demo objects cover only ${Object.keys(demoTiers).length} rarity tiers`);
+const gemmed = (demoTiers.unicum || 0) + (demoTiers.zeer || 0);
+check(gemmed >= 2 && gemmed <= 7,
+  `${gemmed} of ${demo.length} demo objects carry a rarity gem — should be a few, not most`);
+
+// Duplicates would mean the same object on two plinths.
+check(new Set(demo.map(o => o.pid)).size === demo.length, 'demo collection has duplicate objects');
+
+// Rarity resolves without the type index, which is the whole reason the counts
+// are baked in.
+mod.DMG.typeCounts = null;
+const offlineRarity = mod.DMG.rarityFromCount(demo[0].rarityCount, demo[0].rarityType);
+check(offlineRarity && offlineRarity.label === table.strings['rarity.' + offlineRarity.key],
+  'baked rarity does not resolve with no type index loaded');
+
+console.log(`  demo collection: ${demo.length} objects, ${demoCats.size} categories, ` +
+            `tiers ${JSON.stringify(demoTiers)}, ${gemmed} gemmed`);
 
 console.log(bad ? `\n${bad} CHECK(S) FAILED` : '\nall api/classifier/rarity/rooms checks passed');
 process.exit(bad ? 1 : 0);

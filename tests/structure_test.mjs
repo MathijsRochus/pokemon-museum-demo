@@ -92,16 +92,15 @@ for (const f of SCRIPTS) {
 const MUST_EXIST = [
   // api + state
   'DMG', 'MuseumAPI', 'installExhibits', 'isExhibitTile', 'tileValueFor',
-  'GameState', 'uiIsBlocking', 'FALLBACK_EXHIBITS', 'demoExhibit',
+  'GameState', 'uiIsBlocking',
   // strings
   'I18n', 't',
   // art
   'PALETTE', 'pixelPainter', 'makeTexture', 'makeFloorTexture', 'makeWallTexture',
   'drawPedestal', 'drawCaseGlare', 'makeExhibitTextures', 'makePlayerTexture',
   'makeMarlotTexture', 'makeDoorTexture', 'makeWarnTexture', 'makeMarkerTextures',
-  'registerCategory', 'registerArt', 'classifyTypes', 'stemsOf', 'drawUnknownExhibit',
+  'registerCategory', 'classifyTypes', 'stemsOf', 'drawUnknownExhibit',
   'drawVessel', 'drawFurniture', 'drawTile', 'drawTextile', 'drawDevice',
-  'drawSkull', 'drawMask', 'drawAstrolabe',
   // rooms
   'ROOMS', 'DOOR_BASE', 'isDoorTile', 'doorKeyFor', 'compileRoom', 'roomIndexByKey', 'roomName',
   // marlot + scene

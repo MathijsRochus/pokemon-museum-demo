@@ -7,25 +7,10 @@
 
 const MuseumAPI = {};
 
-// Enough of a museum to play with no network. These four keep their hand-drawn
-// art; anything arriving from the API is rendered from its own photograph.
-// Enough of a museum to play with no network. The text lives in
-// content/<lang>.json like all other copy; only the drawing is named here.
-const FALLBACK_EXHIBITS = [
-    { key: 'skull',     art: 'skull' },
-    { key: 'vase',      art: 'vase' },
-    { key: 'mask',      art: 'mask' },
-    { key: 'astrolabe', art: 'astrolabe' }
-];
-
-// Resolved at install time, once the string table is loaded.
-function demoExhibit(piece) {
-    return {
-        name: t('demo.' + piece.key + '.name'),
-        description: t('demo.' + piece.key + '.description'),
-        art: piece.art
-    };
-}
+// The offline museum lives in content/demo-collection.json: sixteen objects
+// from the museum's own permanent display, with their real catalogue text.
+// Loaded by DMG.loadDemoCollection() only when the live draw falls short, so
+// nothing here is hard-coded and nothing is fetched on a normal load.
 
 let TOTAL_EXHIBITS = 0;
 

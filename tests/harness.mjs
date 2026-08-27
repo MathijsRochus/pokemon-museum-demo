@@ -17,7 +17,6 @@ export const SCRIPTS = [
   'src/art/categories/textile.js', 'src/art/categories/tile.js',
   'src/art/categories/furniture.js', 'src/art/categories/vessel.js',
   'src/art/categories/device.js', 'src/art/categories/unknown.js',
-  'src/art/categories/demo.js',
   'src/art/characters.js', 'src/art/markers.js',
   'src/rooms.js', 'src/marlot.js', 'src/scene.js',
   'src/ui/hud.js', 'src/ui/dialogue.js', 'src/ui/dex.js',

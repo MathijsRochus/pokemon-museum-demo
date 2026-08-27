@@ -247,6 +247,13 @@ const DMG = {
             }
         });
 
+        return DMG.rarityFromCount(count, rarestType);
+    },
+
+    // Split out because the curated offline collection carries its counts
+    // already: it has to show the same tiers when the type index cannot be
+    // reached either.
+    rarityFromCount(count, type) {
         if (!Number.isFinite(count)) return null;
 
         const tier = DMG.TIERS.find(t => count <= t.max);
@@ -254,11 +261,36 @@ const DMG = {
         // the rarity chips too.
         return {
             count: count,
-            type: rarestType,
+            type: type,
             key: tier.key,
             label: t('rarity.' + tier.key),
             color: tier.color
         };
+    },
+
+    // Sixteen objects from the museum's own permanent display, saved out of the
+    // collection API. Fetched only when the live draw comes up short, so it
+    // costs nothing on a normal load.
+    async loadDemoCollection() {
+        try {
+            const file = await DMG.json('content/demo-collection.json?v=' + I18n.VERSION);
+            const records = DMG.list(file.objects).map(object => {
+                const record = Object.assign({}, object);
+                record.rarity = DMG.rarityFromCount(object.rarityCount, object.rarityType);
+                return record;
+            });
+
+            // Shuffled, or the file's order becomes the floor's order and both
+            // Unicums sit in the entrance hall every single time.
+            for (let i = records.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [records[i], records[j]] = [records[j], records[i]];
+            }
+            return records;
+        } catch (error) {
+            console.warn('Museumdex: demo-collectie niet geladen —', error.message);
+            return [];
+        }
     },
 
     // Rewrite a IIIF Image API url to a different width. The size segment is
@@ -386,4 +418,4 @@ const DMG = {
 // ------------------------------------------
 // The key is exhibit_<tile value>, so the number on the map is what places a
 // piece. MuseumAPI is filled by installExhibits() during boot — from the
-// museum if it answers, from FALLBACK_EXHIBITS if it does not.
+// museum if it answers, from content/demo-collection.json if it does not.

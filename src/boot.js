@@ -101,14 +101,26 @@ async function startGame() {
     records = drawn;
 
     // Short of a full museum, pad rather than leave plinths that cannot be
-    // inspected. The demo pieces repeat if there are more gaps than fallbacks.
+    // inspected. The stand-ins are sixteen real objects from the museum's
+    // permanent display, fetched only now — so a normal load never pays for
+    // them, and an empty draw still fills the floor with the collection.
     const fromApi = records.length;
-    while (records.length < EXHIBIT_SLOTS) {
-        records.push(demoExhibit(FALLBACK_EXHIBITS[records.length % FALLBACK_EXHIBITS.length]));
+    if (records.length < EXHIBIT_SLOTS) {
+        setLoadProgress(0.9, t('loading.demo'));
+        const demo = await DMG.loadDemoCollection();
+
+        for (let i = 0; records.length < EXHIBIT_SLOTS && demo.length; i++) {
+            records.push(demo[i % demo.length]);
+        }
     }
 
-    // Rarity is worked out once, here, rather than on every dex render.
-    records.forEach(record => { record.rarity = DMG.rarityFor(record.types); });
+    // Rarity is worked out once, here, rather than on every dex render. Records
+    // from the offline collection already carry theirs — computed when the file
+    // was built — so they are left alone: recomputing would need the type index,
+    // which is exactly what is unreachable when that path runs.
+    records.forEach(record => {
+        if (!record.rarity) record.rarity = DMG.rarityFor(record.types);
+    });
 
     installExhibits(records);
     updateProgressCounter();

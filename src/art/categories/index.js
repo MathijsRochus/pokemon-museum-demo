@@ -19,20 +19,14 @@
 
 const CATEGORIES = [];
 
-// The drawing for every art name the game can ask for: the five categories,
-// the dust sheet, and the offline demo pieces.
+// The drawing for each of the five category names. Objects that match none of
+// them fall through to the dust sheet in unknown.js.
 const PROCEDURAL_ART = {};
 
 // A category: matched by keyword, drawn by its own function.
 function registerCategory(category) {
     CATEGORIES.push({ key: category.key, keywords: category.keywords });
     PROCEDURAL_ART[category.key] = category.draw;
-}
-
-// A drawing with no keywords — the demo pieces, asked for by name rather than
-// found by classification.
-function registerArt(name, draw) {
-    PROCEDURAL_ART[name] = draw;
 }
 
 // Dutch diminutives hide the head noun: schoteltje is a schotel, kannetje a

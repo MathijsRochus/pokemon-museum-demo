@@ -1,0 +1,595 @@
+{
+  "note": "Zestien objecten uit de vaste opstelling van Design Museum Gent, opgehaald uit de collectie-API en hier bewaard. Wordt alleen gebruikt als de API onbereikbaar is. Objectteksten zijn van het museum.",
+  "source": "https://data.designmuseumgent.be/v2",
+  "objects": [
+    {
+      "pid": "1482",
+      "name": "Theebusje",
+      "description": "Aardewerken cilindrisch theebusje. De wand is gedecoreerd met afwisselende turquoise en bruine verticale strepen, afgeboord met een horizontale groene rand boven en onder. Het dopdeksel heeft fijne horizontale strepen, concentrisch op de bovenzijde van het deksel. Het theebusje is aangekocht in mei 1913, hoogstwaarschijnlijk op de Wereldtentoonstelling in Gent. In de kunsthandel worden gelijkaardige stukken vermeld met het originele kleefetiket. Deze worden meestal als art deco bestempeld. Gezien de aankoopdatum van deze vaas bestond deze decoratiestijl reeds voor 1920.",
+      "art": "vessel",
+      "maker": "Velten Vordamm Steingutfabrik",
+      "place": "Velten",
+      "types": [
+        "theebusje",
+        "deksel"
+      ],
+      "materials": [
+        "keramiek (materiaal)"
+      ],
+      "techniques": [
+        "vormgieten",
+        "bakken",
+        "schilderkunst (discipline)",
+        "verglazen",
+        "glazuren"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 13.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "diameter",
+          "value": 7.3,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "1913-05",
+      "acquiredHow": "aankoop",
+      "rarityCount": 1,
+      "rarityType": "theebusje",
+      "url": "https://data.designmuseumgent.be/v2/id/object/1482"
+    },
+    {
+      "pid": "1988-0028",
+      "name": "Kleedje in naaldkant",
+      "description": "Voor de tentoonstelling 'Gentiana, 20 meubels en objekten van atelier Alchimia (Milano)’ in 1986 in het toenmalige museum wenste Alessandro Mendini dat een ontwerp van hem zou uitgevoerd worden in “Vlaamse” kant. Oud-textielleerkracht en kantverzamelaarster Elisa Hoste-De Vynck  bewerkte voor het museum het ontwerp voor uitvoering in naaldkant, kloskant en Lierse kant en contacteerde potentiële uitvoerders. Uiteindelijk voerde Agnes Stevens in naaldkant het kleedje uit. Het werd gepresenteerd op de vierkleurige ‘Macaone’ tafel van Mendini. Het patroon van het kantwerk met zijn grillige en uitbundige vormen illustreert de designfilosofie van Studio Alchimia dat zich afzette tegen de soberheid van het modernisme.",
+      "art": "textile",
+      "maker": "Stevens, Agnes",
+      "place": "Zele",
+      "types": [
+        "kleedje",
+        "naaldkant"
+      ],
+      "materials": [
+        "katoen"
+      ],
+      "techniques": [
+        "naaldkant (techniek)"
+      ],
+      "dimensions": [
+        {
+          "axis": "diameter",
+          "value": 35,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "1986-11-12",
+      "acquiredHow": "aankoop",
+      "rarityCount": 1,
+      "rarityType": "naaldkant",
+      "url": "https://data.designmuseumgent.be/v2/id/object/1988-0028"
+    },
+    {
+      "pid": "3057",
+      "name": "Schommelstoel nr. 1",
+      "description": "Met dit ontwerp was de Duits-Oostenrijkse Michael Thonet de eerste die een schommelstoel uit gebogen hout op de markt bracht. Het bedrijf Gebrüder Thonet toonde de stoel in 1862 op de Wereldtentoonstelling in Londen. In 1856 was Thonet erin geslaagd een patent te bemachtigen op de machinale productie van gebogen hout. Het bedrijf probeerde met ontwerpen zoals deze een gegoede middenklasse aan te spreken. Net als de Thonet caféstoel nr. 14 uit 1859, blijft de schommelstoel tot op heden een iconisch en geliefd meubel.",
+      "art": "furniture",
+      "maker": "Gebrüder Thonet",
+      "place": "Wenen",
+      "types": [
+        "schommelstoel"
+      ],
+      "materials": [],
+      "techniques": [
+        "buigen",
+        "canneren"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 98,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 58,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 115,
+          "unit": "cm"
+        }
+      ],
+      "acquired": null,
+      "acquiredHow": "onbekend",
+      "rarityCount": 2,
+      "rarityType": "schommelstoel",
+      "url": "https://data.designmuseumgent.be/v2/id/object/3057"
+    },
+    {
+      "pid": "TUP-0073",
+      "name": "Micro+ Pitcher 1 l",
+      "description": "Deze kan van een liter is gemaakt uit polyetherimide, een sterke en lichte kunststof met een groot temperatuurbereik. Ze dient om voeding te koken of op te warmen in de microgolf en te bewaren in koelkast of diepvries. Door de bolle vorm kan voeding eenvoudig gemengd worden voor of tijdens het koken. Tupperware, opgericht in 1946 door Earl Tupper, werd beroemd met de massaproductie van kunststof huishoudproducten, in het bijzonder voor het bereiden, serveren en bewaren van voedsel. In 1961 opende in België de eerste fabriek buiten de Verenigde Staten. Die kreeg in 1966 een ontwerpafdeling voor de Europese, Afrikaanse en Midden-Oosterse markt. Daar werkte Pieter De Coster als senior product designer van 1970 tot 1998.",
+      "art": "vessel",
+      "maker": "Tupperware",
+      "place": "Aalst",
+      "types": [
+        "microgolfovenschaal",
+        "deksel",
+        "kan"
+      ],
+      "materials": [
+        "polyetherimide"
+      ],
+      "techniques": [],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 14,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 21,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 15.5,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2005",
+      "acquiredHow": "bruikleen",
+      "rarityCount": 5,
+      "rarityType": "microgolfovenschaal",
+      "url": "https://data.designmuseumgent.be/v2/id/object/TUP-0073"
+    },
+    {
+      "pid": "2017-0308",
+      "name": "Yoghourt-maker",
+      "description": "De ronde, volautomatische yoghurtbereider, type 552, is geschikt voor het bereiden van twee liter yoghurt. Het toestel heeft een gele kunststof onderzijde en een doorzichtig kunststof deksel. De negen yoghurtpotjes bestaan uit glas met een wit kunststof deksel. Nova kocht een deel van de apparaten aan bij andere bedrijven en verkocht deze onder het Nova-merk, waaronder de yoghurtmakers. Ze zijn te herkennen aan het typenummer dat begint met 5.",
+      "art": "device",
+      "maker": "Nova",
+      "place": "Tongeren",
+      "types": [
+        "yoghurtketel"
+      ],
+      "materials": [],
+      "techniques": [],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 14,
+          "unit": "cm"
+        },
+        {
+          "axis": "diameter",
+          "value": 30.5,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2016-08-16",
+      "acquiredHow": "schenking",
+      "rarityCount": 2,
+      "rarityType": "yoghurtketel",
+      "url": "https://data.designmuseumgent.be/v2/id/object/2017-0308"
+    },
+    {
+      "pid": "2017-0095_1-3",
+      "name": "Plia",
+      "description": "Giancarlo Piretti ontwierp de vouwstoel 'Plia' als vaste medewerker van Anonima Castelli. Hij ontwikkelde een baanbrekend vouwmechanisme, waarbij de gebruikelijke zes scharnieren plaatsmaakten voor twee scharnieren met drie segmenten. Hierdoor is de stoel in gevouwen toestand uitzonderlijk plat. De opengeklapte stoelen laten zich dan weer gemakkelijk stapelen. Na de lancering op de Salone del Mobile in Milaan in 1969 kende de stoel al snel een grote populariteit. De lichte en compacte constructie met afgeronde hoeken en het gebruik van glanzende stalen buizen en doorschijnend plastic gaven de stoel een aantrekkelijk, modern uitzicht.  In 1973 werd het ontwerp bekroond met de Duitse designprijs Gute Form. Dit exemplaar heeft een zitting en rugleuning in grijze, doorschijnende kunststof.",
+      "art": "furniture",
+      "maker": "Anonima Castelli",
+      "place": "Bologna",
+      "types": [
+        "klapstoel"
+      ],
+      "materials": [],
+      "techniques": [
+        "verchromen"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 74.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 46.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 49,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2017",
+      "acquiredHow": "oningeschreven gevonden",
+      "rarityCount": 6,
+      "rarityType": "klapstoel",
+      "url": "https://data.designmuseumgent.be/v2/id/object/2017-0095_1-3"
+    },
+    {
+      "pid": "2004-0050",
+      "name": "Sciangai",
+      "description": "De kapstok 'Sciangai' was het eerste belangrijke woonaccessoire uitgebracht door Zanotta. Hij bestaat uit acht houten staven die waaiervormig worden opgesteld en gemakkelijk samen te vouwen zijn, door middel van een stalen ringetje. De naam verwijst naar een Chinees spel met houten stokjes. Sciangai combineert speelse popinvloeden met huiselijke functionaliteit. In 1979 werd het ingenieuze ontwerp bekroond met de Compasso d'Oro.",
+      "art": "furniture",
+      "maker": "Zanotta",
+      "place": "Italië",
+      "types": [
+        "kapstok"
+      ],
+      "materials": [
+        "beukenhout"
+      ],
+      "techniques": [
+        "lakken"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 146.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 75,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 75,
+          "unit": "cm"
+        },
+        {
+          "axis": "diameter",
+          "value": 15,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2004-11-26",
+      "acquiredHow": "aankoop",
+      "rarityCount": 9,
+      "rarityType": "kapstok",
+      "url": "https://data.designmuseumgent.be/v2/id/object/2004-0050"
+    },
+    {
+      "pid": "1987-0013",
+      "name": "Onion",
+      "description": "Nathalie Du Pasquier ontwierp de fruitschaal 'Onion' voor het designcollectief Memphis. Onion maakt deel uit van een reeks aardewerken en handgeschilderde objecten met groentenamen als titel, uitgevoerd door Flavia. Objecten uit keramiek, zilver en glas belichaamden voor Memphis ‘het nieuwe vakmanschap’, een term geïntroduceerd door Andrea Branzi. Ze tekenen verzet aan tegen massaproductie en eenheid van vorm. In deze objecten hebben de ontwerpers de grootste vrijheid. Du Pasquier stond gekend om haar eclectische, futuristische en schreeuwerige printontwerpen. De fruitschaal behoort tot de vijfde Memphiscollectie, waarmee het collectief een nieuwe wending nam. De ontwerpen werden architecturaler en futuristischer als reactie op de alsmaar sneller evoluerende wereld.",
+      "art": "vessel",
+      "maker": "Memphis",
+      "place": "Milano",
+      "types": [
+        "fruitschaal"
+      ],
+      "materials": [
+        "aardewerk"
+      ],
+      "techniques": [
+        "glazuren"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 8.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 30,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 25,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "1987-10-05",
+      "acquiredHow": "aankoop",
+      "rarityCount": 8,
+      "rarityType": "fruitschaal",
+      "url": "https://data.designmuseumgent.be/v2/id/object/1987-0013"
+    },
+    {
+      "pid": "2022-0016",
+      "name": "Neon",
+      "description": "Deze lamp maakt deel uit van de 'Neon'-reeks van Muller Van Severen. De lamp bestaat uit lichtlijnen in glas die als een soort slinger in de ruimte worden geplaatst. De eerste 'Neon'-werken werden voor het eerst getoond in 2014 tijdens de tentoonstelling New York bij Valerie Traan Gallery in Antwerpen. De reeks bouwt voort op de techniek van neonlicht zoals die traditioneel wordt gebruikt voor lichtreclame en in clubs. In tegenstelling tot klassieke neonverlichting is 'Neon' vervaardigd uit glas en volgt ze een vaste vorm. Daardoor is ze niet buigzaam en kwetsbaar.",
+      "art": "device",
+      "maker": "Muller Van Severen",
+      "place": "Evergem",
+      "types": [
+        "lamp"
+      ],
+      "materials": [
+        "glas (materiaal)"
+      ],
+      "techniques": [],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 80,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 310,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 4,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2022",
+      "acquiredHow": "aankoop",
+      "rarityCount": 7,
+      "rarityType": "lamp",
+      "url": "https://data.designmuseumgent.be/v2/id/object/2022-0016"
+    },
+    {
+      "pid": "0935",
+      "name": "Vloerkleed uit de eigen woning van de ontwerper",
+      "description": "Jules Boulez leverde net als andere Belgische en buitenlandse kunstenaars ontwerpen voor het weefatelier gestart in 1921 door Elisabeth de Saedeleer en haar zussen in Etikhove. Het monogram staat waarschijnlijk voor de officiële firmanaam: Société des Tapis d'Art de Saedeleer et Co. In reactie op de toenmalige gemechaniseerde productie streefden ze er naar tapijten te produceren die weliswaar artisanaal maar toch hedendaags waren. Tapijten moesten volgens hen decoratief zijn en passen in het groter geheel van het interieur. Daarom hoorde de versiering vlak te zijn en niet realistisch. Dit tapijt beantwoordt aan deze uitgaanspunten. Kenmerkend voor Boulez zijn daarbij de kloeke vormen en de kleurovergangen.",
+      "art": "textile",
+      "maker": "Studio de Saedeleer",
+      "place": "Etikhove",
+      "types": [
+        "vloerkleed"
+      ],
+      "materials": [],
+      "techniques": [
+        "tapijtknopen"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 159.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 91.5,
+          "unit": "cm"
+        }
+      ],
+      "acquired": null,
+      "acquiredHow": "onbekend",
+      "rarityCount": 6,
+      "rarityType": "vloerkleed",
+      "url": "https://data.designmuseumgent.be/v2/id/object/0935"
+    },
+    {
+      "pid": "2024-0006",
+      "name": "Sunne",
+      "description": "Met 'Sunne' wil de Nederlandse ontwerper Marjan van Aubel zonne-energie duurzaam beschikbaar maken voor iedereen. Het ontwerp brengt de zon op een tastbare manier binnen in de woning. Het zonnepaneel, dat bij voorkeur wordt opgehangen aan het raam, zorgt voor licht in drie standen: 'Sunrise' (roze-blauw), 'Sunne' (geel) en 'Sunset' (oranje). De vorm van de lamp is geïnspireerd op een horizon of op meerdere zonnen of cirkels naast elkaar, en heeft als doel rustgevend te zijn. In 2023 nam The New York Times Sunne op in een overzicht van 'design classics of the future'. Van Aubel wil echter niet alleen ontwerper zijn, ze neemt ook een actieve rol op in het debat over de transitie van fossiele naar hernieuwbare energie en duurzame technologieën.",
+      "art": "device",
+      "maker": "van Aubel, Marjan",
+      "place": "Amsterdam",
+      "types": [
+        "hanglamp"
+      ],
+      "materials": [],
+      "techniques": [
+        "anodiseren"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 16.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 80.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 4,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2024-03-27",
+      "acquiredHow": "aankoop",
+      "rarityCount": 21,
+      "rarityType": "hanglamp",
+      "url": "https://data.designmuseumgent.be/v2/id/object/2024-0006"
+    },
+    {
+      "pid": "2016-0010_1-2",
+      "name": "Veiled Lady",
+      "description": "Voor hun Mycelium Project 2.0 deden Eric Klarenbeek en Maartje Dros beroep op mycelium (een netwerk van schimmeldraden) om als natuurlijke lijm te functioneren bij het binden van lokale grond- en afvalstoffen. De ontwerpers gingen uit van een 3-D print van organische stoffen, waarin de schimmels verder kunnen blijven groeien tot een stevige en toch lichte structuur bekomen wordt. Hierna wordt het object uitgedroogd om verdere groei van de schimmels stop te zetten. Het project is een voorbeeld van eco-design en samenwerken met natuurlijke organismen, dat zelfs van een negatieve ecologische voetafdruk gewag kan maken: bij het groeien van schimmels wordt immers zuurstof geproduceerd, en de stukken kunnen na gebruik perfect als compost dienen. De naam 'Veiled Lady' verwijst naar de tropische schimmel waarvan de gaassluier de vorm van de kruk inspireerde.",
+      "art": "furniture",
+      "maker": "Studio Klarenbeek & Dros",
+      "place": "Zaandam",
+      "types": [
+        "kruk"
+      ],
+      "materials": [
+        "organisch materiaal"
+      ],
+      "techniques": [],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 39,
+          "unit": "cm"
+        },
+        {
+          "axis": "diameter",
+          "value": 27,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2016-07-01",
+      "acquiredHow": "aankoop",
+      "rarityCount": 23,
+      "rarityType": "kruk",
+      "url": "https://data.designmuseumgent.be/v2/id/object/2016-0010_1-2"
+    },
+    {
+      "pid": "2022-0058_1-2",
+      "name": "Koffiekop van het model 'Astrid'",
+      "description": "Pieter Stockmans ontwierp deze koffiekop met bijhorend schoteltje in het begin van zijn loopbaan als industrieel ontwerper bij Mosa. Aanvankelijk werkte Stockmans als modelleerder onder de leiding van ontwerper Edmond Bellefroid, maar hij creëerde al snel zelf prototypes. De kop en het schoteltje van het model 'Astrid' werden versierd met verschillende decors. De kop vormde de basis voor de koffiekop 'Sonja', die hij kort daarna ontwierp. Die rechte, stapelbare kop in dikker hotelporselein was een van de grootste succesproducten van Mosa.",
+      "art": "vessel",
+      "maker": "Koninklijke Mosa",
+      "place": "Maastricht",
+      "types": [
+        "koffiekop"
+      ],
+      "materials": [
+        "porselein"
+      ],
+      "techniques": [],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 5.4,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 10,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 8.3,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "2022-06-03",
+      "acquiredHow": "schenking",
+      "rarityCount": 65,
+      "rarityType": "koffiekop",
+      "url": "https://data.designmuseumgent.be/v2/id/object/2022-0058_1-2"
+    },
+    {
+      "pid": "1999-0081",
+      "name": "Mickville",
+      "description": "Dit meubel van Philippe Starck kan zowel als kruk als als bijzettafel worden gebruikt. Het ontwerp is opvouwbaar en bestaat uit een eenvoudige constructie: een rond vlak rust op drie slanke poten, terwijl een opstaande ringvormige lus tegelijk als rugleuning of als handgreep fungeert. ",
+      "art": "furniture",
+      "maker": "Driade",
+      "place": "Italië",
+      "types": [
+        "kruk",
+        "bijzettafel"
+      ],
+      "materials": [
+        "metaal"
+      ],
+      "techniques": [],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 80.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 38,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 41,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "1999-07-13",
+      "acquiredHow": "schenking",
+      "rarityCount": 23,
+      "rarityType": "kruk",
+      "url": "https://data.designmuseumgent.be/v2/id/object/1999-0081"
+    },
+    {
+      "pid": "1980-0205",
+      "name": "Decortegel met draak",
+      "description": "Figuurdecor in reliëf met centraal een gekroonde draak. Willem Delsaux was een Belgische landschapschilder, graficus en keramist. In 1907 vestigde hij zich in Bouffioulx en startte er een pottenbakkerij. Hij paste de oude technieken en versiermethoden uit de streek toe op eigen creaties. Delsaux was ook leraar aan de Université du Travail in Charleroi waar hij decoratieve kunsten, tekenen, schilderen en keramiek onderwees. ",
+      "art": "tile",
+      "maker": "Delsaux, Willem",
+      "place": "Bouffioulx",
+      "types": [
+        "wandtegel"
+      ],
+      "materials": [
+        "steengoed"
+      ],
+      "techniques": [
+        "bakken",
+        "glazuren"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 14.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 14.7,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 1.5,
+          "unit": "cm"
+        }
+      ],
+      "acquired": null,
+      "acquiredHow": "onbekend",
+      "rarityCount": 540,
+      "rarityType": "wandtegel",
+      "url": "https://data.designmuseumgent.be/v2/id/object/1980-0205"
+    },
+    {
+      "pid": "1996-0016_1-2",
+      "name": "Opengewerkt decoratief kastpaneel",
+      "description": "Deze panelen ontwierp Albert Van huffel in 1919, het jaar voor hij zich toelegde op het ontwerp van de Basiliek van Koekelberg. Op een ontwerptekening voor de woning van de familie van Christian Pfister zijn de panelen te zien, bedoeld als decoratie om in een kast te plaatsen. De ontwerpen werden vermoedelijk ook aan de familie Behn voorgelegd. Voor beide families ontwierp Van huffel enkele vertrekken in 1919. Uit brieven kan worden afgeleid dat de familie Behn de panelen niet aankocht. ",
+      "art": "tile",
+      "maker": "Albijn, Arthur",
+      "place": "Gent",
+      "types": [
+        "paneel (objectnaam)"
+      ],
+      "materials": [
+        "hout",
+        "ebbenhout"
+      ],
+      "techniques": [
+        "beeldsnijden"
+      ],
+      "dimensions": [
+        {
+          "axis": "hoogte",
+          "value": 37.5,
+          "unit": "cm"
+        },
+        {
+          "axis": "breedte",
+          "value": 12,
+          "unit": "cm"
+        },
+        {
+          "axis": "diepte",
+          "value": 11,
+          "unit": "cm"
+        }
+      ],
+      "acquired": "1996",
+      "acquiredHow": "legaat",
+      "rarityCount": 168,
+      "rarityType": "paneel (objectnaam)",
+      "url": "https://data.designmuseumgent.be/v2/id/object/1996-0016_1-2"
+    }
+  ]
+}
