@@ -2426,6 +2426,67 @@ function showGameOver(stats) {
 // reading rather than waiting. A plain <img> is used rather than a canvas, so
 // no CORS handshake is needed — display does not require reading the pixels.
 
+// The drawn objects double as the gallery's fallback, which is what makes an
+// empty frame unnecessary: every card shows the piece the plinth showed, and a
+// photograph simply replaces it if one arrives.
+//
+// Cached by art name — there are six variants across sixteen cards, so drawing
+// each one once is worth the map.
+const galleryArtCache = new Map();
+
+function categoryArtUrl(record) {
+    const name = record.art || 'unknown';
+    if (galleryArtCache.has(name)) return galleryArtCache.get(name);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    // No pedestal and no case glare: on a plinth those sell the object as an
+    // exhibit, but in a gallery frame they are furniture around the subject.
+    const draw = PROCEDURAL_ART[record.art];
+    if (draw) draw(pixelPainter(ctx));
+    else drawUnknownExhibit(pixelPainter(ctx));
+
+    const url = cropToContent(canvas).toDataURL('image/png');
+    galleryArtCache.set(name, url);
+    return url;
+}
+
+// The art functions all draw around a plinth that is not here, so the result
+// sits high in its 32x32 box with dead space below. Trimming to the pixels that
+// were actually painted lets the frame centre the object instead of the box.
+function cropToContent(canvas) {
+    const width = canvas.width;
+    const height = canvas.height;
+    const data = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+
+    let minX = width, minY = height, maxX = -1, maxY = -1;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            if (data[(y * width + x) * 4 + 3] === 0) continue;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+    }
+    if (maxX < 0) return canvas;   // nothing was drawn
+
+    const cropped = document.createElement('canvas');
+    cropped.width = maxX - minX + 1;
+    cropped.height = maxY - minY + 1;
+
+    const ctx = cropped.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(canvas, minX, minY, cropped.width, cropped.height,
+                  0, 0, cropped.width, cropped.height);
+    return cropped;
+}
+
 function buildEndGallery() {
     const list = document.getElementById('go-gallery');
     const empty = document.getElementById('go-gallery-empty');
@@ -2447,22 +2508,39 @@ function buildEndGallery() {
 function galleryCard(entry) {
     const card = document.createElement('div');
     card.className = 'go-card';
+    // Always set, even with no photo url to try: the manifest upgrade finds its
+    // cards by this, and a card without it can never be filled in later.
+    card.dataset.pid = entry.pid || '';
 
     const frame = document.createElement('div');
     frame.className = 'go-card-frame';
 
+    // The drawn object, always. This is the fallback and the default state, so
+    // a frame is never blank and never has to apologise for a missing photo.
+    const art = document.createElement('img');
+    art.className = 'go-card-art';
+    art.alt = entry.name || '';
+    art.src = categoryArtUrl(entry);
+    frame.appendChild(art);
+
+    // The photograph, layered over it and revealed only once it decodes. The
+    // element exists whether or not there is a url for it yet: two thirds of
+    // records arrive without one, and building it only for the third that do
+    // left the rest with nothing for the manifest upgrade to fill.
+    const photo = document.createElement('img');
+    photo.className = 'go-card-photo';
+    photo.alt = entry.name || '';
+    // Checked on load rather than trusted, because a blocked response still
+    // fires load: the museum's dead image host answers 403 with an HTML page,
+    // which the browser rejects as a non-image and reports as complete with a
+    // naturalWidth of zero.
+    photo.addEventListener('load', () => {
+        if (photo.naturalWidth > 0) frame.classList.add('has-photo');
+    });
+    frame.appendChild(photo);
+
     if (entry.photo) {
-        const img = document.createElement('img');
-        img.alt = entry.name || '';
-        img.loading = 'lazy';
-        // A failure is expected while the museum is between image hosts, so it
-        // hides the frame rather than leaving a broken-image icon.
-        img.addEventListener('error', () => { frame.classList.add('is-empty'); });
-        img.src = DMG.iiifWidth(entry.photo, DMG.GALLERY_WIDTH) || entry.photo;
-        frame.appendChild(img);
-        card.dataset.pid = entry.pid || '';
-    } else {
-        frame.classList.add('is-empty');
+        photo.src = DMG.iiifWidth(entry.photo, DMG.GALLERY_WIDTH) || entry.photo;
     }
 
     const body = document.createElement('div');
@@ -2479,26 +2557,28 @@ function galleryCard(entry) {
 }
 
 // Second chance for the photographs that failed. The IIIF manifest is the only
-// route left while the record's own image host answers 403, and it is slow —
-// a 17s median, and it fails more often than it works. Which is fine here:
-// nothing is waiting on it, and a frame that fills in twenty seconds later is
-// strictly better than one that never does.
+// route left while the record's own image host answers 403, and it is slow — a
+// 17s median, and it fails more often than it works. Which is why the drawn
+// object is the default rather than a placeholder: nothing is waiting on this,
+// no frame is empty while it runs, and a photograph that arrives twenty seconds
+// later simply replaces the drawing.
 async function upgradeGalleryPhotos(entries) {
-    const pending = entries.filter(entry => entry.manifest);
+    const pending = entries.filter(entry => entry.manifest && entry.pid);
 
     await DMG.pool(pending.map(entry => async () => {
-        const card = document.querySelector('.go-card[data-pid="' + cssEscape(entry.pid) + '"]');
-        const frame = card && card.querySelector('.go-card-frame');
-        const img = frame && frame.querySelector('img');
-
-        // Already showing something, or the card is gone — nothing to do.
-        if (!img || !frame.classList.contains('is-empty')) return;
-
         const url = await DMG.spriteViaManifest(entry.manifest);
         if (!url) return;
 
-        img.addEventListener('load', () => { frame.classList.remove('is-empty'); }, { once: true });
-        img.src = url;
+        // Looked up after the slow fetch, not before: the player may have hit
+        // retry in the seventeen seconds it took, and the card would be gone.
+        const card = document.querySelector('.go-card[data-pid="' + cssEscape(entry.pid) + '"]');
+        const frame = card && card.querySelector('.go-card-frame');
+        const photo = frame && frame.querySelector('.go-card-photo');
+
+        // Gone, or a photograph already landed by the direct route.
+        if (!photo || frame.classList.contains('has-photo')) return;
+
+        photo.src = url;
     }), 4);
 }
 

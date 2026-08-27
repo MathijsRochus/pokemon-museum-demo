@@ -10,7 +10,16 @@ text included. Reload the page and you get a different museum.
 
 **[▶ Play it](https://mathijsrochus.github.io/pokemon-museum-demo/)**
 
-![The museum floor, with four exhibits on plinths](screenshot.png)
+![The Inkomhal: plinths with drawn objects, two already ticked into the
+Museumdex, a gold and a purple gem marking the rarest pieces, and MARLOT lining
+up a shot inside her autofocus frame](screenshot.png)
+
+At the end of a run, every piece you registered comes back with the museum's own
+photograph and its rarity — a Tupperware `Kookpot` that is the only one of its
+type in nine thousand objects, next to a wall tile that is one of 540:
+
+![The end-of-run gallery: three collected objects with real photographs, each
+with a coloured rarity chip — Gewoon 540, Unicum 1, Ongewoon 46](screenshot-gallery.png)
 
 ## Controls
 
@@ -124,6 +133,15 @@ exhibits themselves, which are photographs.
 **The end-of-run gallery** is the one place a photograph is shown. It uses a
 plain `<img>` rather than a canvas, so no CORS handshake is needed — displaying
 an image does not require reading its pixels, only pixelating it did.
+
+Each frame holds two layers: the drawn object underneath, always, and the
+photograph over it, revealed only once it decodes. The drawing is the resting
+state rather than a placeholder, which is what makes the slow and unreliable
+manifest route usable — no frame is ever blank, nothing is waiting, and a
+photograph that arrives twenty seconds later simply replaces the drawing. That
+the drawing has to be checked with `naturalWidth > 0` rather than trusted is the
+museum's fault: its dead image host answers 403 with an HTML page, which the
+browser reports as a *successful* load with zero dimensions.
 
 **The Museumdex exports live.** The download button re-fetches each found object
 from the API at the moment it is pressed and writes out the complete catalogue

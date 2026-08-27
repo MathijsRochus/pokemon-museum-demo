@@ -78,7 +78,10 @@
         }
 
         #hud .dot { color: var(--gold); }
-        #progress-counter { color: #fff; }
+
+        /* The counter sits hard right of the wing name, so the HUD stays two
+           rows tall — a third row pushed the AUTO button under the toast. */
+        #progress-counter { color: #fff; margin-left: auto; padding-left: 10px; }
 
         #hud {
             flex-direction: column;
@@ -465,22 +468,32 @@
             justify-content: center;
         }
 
+        /* Two layers: the drawn object underneath, the photograph over it. The
+           drawing is never removed, so a photograph that fails to decode leaves
+           the card looking finished rather than broken. */
+        .go-card-frame { position: relative; }
+
         .go-card-frame img {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
             object-fit: contain;
             display: block;
         }
 
-        .go-card-frame.is-empty img { display: none; }
-
-        .go-card-frame.is-empty::after {
-            content: 'geen foto';
-            font-size: 6px;
-            color: #5f5670;
-            text-align: center;
-            padding: 4px;
+        /* Nearest-neighbour, or the 20px drawing turns to mush at 92px. The
+           padding keeps it off the frame edge, the way a plinth would. */
+        .go-card-art {
+            image-rendering: pixelated;
+            padding: 12px;
+            box-sizing: border-box;
         }
+
+        .go-card-photo { opacity: 0; transition: opacity 0.35s ease; }
+
+        .go-card-frame.has-photo .go-card-art { opacity: 0; }
+        .go-card-frame.has-photo .go-card-photo { opacity: 1; }
 
         .go-card-body { min-width: 0; }
         .go-card-name { font-size: 10px; line-height: 1.5; margin-bottom: 8px; }
@@ -530,7 +543,8 @@
         /* --- Discovery toast --- */
         #toast {
             position: absolute;
-            top: 60px;
+            /* Clear of the HUD: at 60px it sat on top of the AUTO button. */
+            top: 88px;
             left: 50%;
             transform: translate(-50%, -12px);
             padding: 12px 18px;
@@ -738,9 +752,6 @@
             <div class="hud-row">
                 <span class="dot">&#9679;</span>
                 <span id="room-label">Inkomhal</span>
-            </div>
-            <div class="hud-row">
-                <span>GEVONDEN</span>
                 <span id="progress-counter">0/0</span>
             </div>
             <div class="hud-row" id="danger">
@@ -845,6 +856,6 @@
          so without it a returning player keeps running the previous game.js for
          ten minutes after a deploy while the new index.html is already loaded —
          a mismatch that looks exactly like "the deploy didn't work". -->
-    <script src="game.js?v=5"></script>
+    <script src="game.js?v=6"></script>
 </body>
 </html>
