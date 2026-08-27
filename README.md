@@ -103,9 +103,13 @@ sorts an object into one of five buckets — vessel, furniture, tile, textile,
 device — and each has a hand-drawn piece. The buckets were chosen by running the
 museum's own type index (687 type names, ~12,950 objects) through the classifier
 and measuring: these five cover **90%** of the collection. The rest fall back to
-a crate, and mostly deserve to — the largest unmatched types are `onderdeel`,
-`fragment` and `staal (monster)`, where a crate is the honest answer rather than
-a wrong guess. Those genuinely shapeless types are 3.9% of the collection on
+a dust sheet, and mostly deserve to — the largest unmatched types are
+`onderdeel`, `fragment` and `staal (monster)`, where a draped cover is the
+honest answer rather than a wrong guess: it is a real thing to see in a museum,
+and unlike a category stand-in it claims nothing about what is underneath. Two
+legs show beneath the hem, because without them the sheet reads as a shape in
+its own right rather than as a cover over an object, and the silhouette is
+deliberately asymmetric — a symmetrical dome reads as a shrouded figure. Those genuinely shapeless types are 3.9% of the collection on
 their own, so ~96% is the realistic ceiling for any number of categories. A
 sixth bucket was measured and dropped: sculpture, the largest candidate, was
 worth only +1.2pp, against +2.2pp for simply widening the five lists already
