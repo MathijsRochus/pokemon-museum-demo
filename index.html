@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Museumdex Prototype</title>
+    <title>Museumdex — Design Museum Gent</title>
 
     <!-- Load Phaser 3 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
@@ -321,8 +321,71 @@
         }
 
         .dex-num  { font-size: 8px; color: #8f89a0; margin-bottom: 6px; }
-        .dex-name { font-size: 12px; margin-bottom: 8px; }
+        .dex-name { font-size: 12px; margin-bottom: 8px; line-height: 1.5; }
         .dex-desc { font-size: 9px; line-height: 1.9; color: #c6c1d4; }
+
+        /* The photograph sits beside the text, and drops under it when the
+           window is too narrow to hold both. */
+        .dex-body {
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+        }
+
+        .dex-text { min-width: 0; }   /* lets long labels wrap instead of pushing out */
+
+        .dex-photo {
+            width: 96px;
+            flex: 0 0 96px;
+            aspect-ratio: 1;
+            object-fit: contain;
+            background: #1c1c25;
+            border: 2px solid #45455a;
+            border-radius: 4px;
+        }
+
+        @media (max-width: 620px) {
+            .dex-body { flex-direction: column; }
+            .dex-photo { width: 120px; flex-basis: auto; }
+        }
+
+        /* Catalogue metadata: a label/value grid, one row per field present. */
+        .dex-facts {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 4px 10px;
+            font-size: 8px;
+            line-height: 1.7;
+            margin-bottom: 10px;
+        }
+
+        .dex-facts span { color: #8f89a0; }
+        .dex-facts b { color: #e7e3f0; font-weight: normal; }
+
+        .dex-credit {
+            font-size: 7px;
+            line-height: 1.8;
+            color: #7d7790;
+            margin-top: 10px;
+        }
+
+        .dex-credit a { color: #9aa6d2; }
+
+        /* Wing heading in the dex, with that wing's tally on the right. */
+        .dex-room {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            margin: 18px 0 10px;
+            padding-bottom: 6px;
+            border-bottom: 2px solid #45455a;
+            font-size: 10px;
+            color: var(--gold);
+        }
+
+        .dex-room:first-child { margin-top: 0; }
+        .dex-room b { font-size: 9px; color: #9a94a8; font-weight: normal; }
 
         #dex-close {
             margin-top: 8px;
@@ -360,6 +423,175 @@
             transform: translate(-50%, 0);
         }
 
+        /* --- Boot screen, shown while the collection loads --- */
+        #boot-screen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 14px;
+            background: #16161e;
+            color: #cfcadb;
+            z-index: 30;
+            text-align: center;
+            padding: 24px;
+        }
+
+        #boot-title {
+            font-size: 12px;
+            color: var(--gold);
+            letter-spacing: 1px;
+        }
+
+        #boot-status {
+            font-size: 9px;
+            color: #9a94a8;
+            line-height: 1.8;
+        }
+
+        /* The museum's pixel logo is black on transparent, so it needs its own
+           white plate to sit on — on the dark screens it would vanish. */
+        .logo-plate {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+            border: 3px solid var(--ink);
+            border-radius: 8px;
+            box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.5);
+            padding: 12px;
+        }
+
+        .logo-plate img {
+            display: block;
+            width: 96px;
+            height: 96px;
+            image-rendering: pixelated;
+        }
+
+        #boot-screen .logo-plate { margin-bottom: 4px; }
+
+        #gameover-screen .logo-plate {
+            margin: 0 auto 18px;
+            width: max-content;
+        }
+
+        #gameover-screen .logo-plate img { width: 72px; height: 72px; }
+
+        #boot-note {
+            font-size: 7px;
+            line-height: 2;
+            color: #6f6a80;
+            max-width: 320px;
+        }
+
+        /* Chunky pixel progress bar — no smooth transition, it should step. */
+        #boot-track {
+            width: min(280px, 70%);
+            height: 14px;
+            background: #2b2b38;
+            border: 3px solid #55556a;
+            padding: 2px;
+        }
+
+        #boot-bar {
+            width: 0%;
+            height: 100%;
+            background: var(--gold);
+            transition: width 0.2s steps(8);
+        }
+
+        /* --- Start screen: name, then in you go --- */
+        #start-screen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            background:
+                radial-gradient(circle at 50% 30%, #2a2434 0%, #14141b 75%);
+            color: #cfcadb;
+            z-index: 40;
+            text-align: center;
+            padding: 28px;
+        }
+
+        #start-title {
+            font-size: 20px;
+            color: var(--gold);
+            letter-spacing: 3px;
+            text-shadow: 3px 3px 0 #000;
+        }
+
+        #start-sub {
+            font-size: 8px;
+            line-height: 2;
+            color: #a49db5;
+            max-width: 420px;
+        }
+
+        #start-sub b { color: #e0457b; }
+
+        #start-form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            margin-top: 4px;
+        }
+
+        #start-form label {
+            font-size: 9px;
+            color: #cfcadb;
+        }
+
+        #player-name {
+            font-family: inherit;
+            font-size: 11px;
+            text-align: center;
+            padding: 10px 12px;
+            width: 220px;
+            color: var(--ink);
+            background: var(--paper);
+            border: 3px solid var(--ink);
+            border-radius: 4px;
+            outline: none;
+        }
+
+        #player-name:focus { box-shadow: 0 0 0 3px var(--gold); }
+
+        #start-button {
+            font-family: inherit;
+            font-size: 11px;
+            padding: 12px 22px;
+            cursor: pointer;
+            color: #fff;
+            background: var(--accent);
+            border: 3px solid var(--ink);
+            border-radius: 6px;
+            box-shadow: 0 4px 0 #8e2f24;
+        }
+
+        #start-button:active { transform: translateY(3px); box-shadow: 0 1px 0 #8e2f24; }
+
+        #room-label {
+            color: var(--gold);
+        }
+
+        #source-note {
+            font-size: 8px;
+            line-height: 1.9;
+            color: #7d7790;
+            text-align: center;
+            max-width: 640px;
+        }
+
+        #source-note a { color: #9aa6d2; }
+
         #controls {
             font-size: 9px;
             color: #7a7590;
@@ -377,11 +609,14 @@
         <div id="hud">
             <div class="hud-row">
                 <span class="dot">&#9679;</span>
-                <span>FOUND</span>
+                <span id="room-label">Inkomhal</span>
+            </div>
+            <div class="hud-row">
+                <span>GEVONDEN</span>
                 <span id="progress-counter">0/0</span>
             </div>
             <div class="hud-row" id="danger">
-                <span class="danger-label">DANGER</span>
+                <span class="danger-label">MOEILIJKHEID</span>
                 <input type="range" id="threat-slider" min="0" max="100" value="0" tabindex="-1">
                 <span id="threat-label">0%</span>
                 <button id="threat-auto">AUTO</button>
@@ -394,37 +629,74 @@
 
         <div id="dialogue-box">
             <div id="dialogue-head">
-                <h3 id="exhibit-title">Title</h3>
-                <span id="dialogue-new">NEW</span>
+                <h3 id="exhibit-title">Titel</h3>
+                <span id="dialogue-new">NIEUW</span>
             </div>
-            <p id="exhibit-desc">Description...</p>
-            <div id="dialogue-hint">Press SPACE</div>
+            <p id="exhibit-desc">Beschrijving…</p>
+            <div id="dialogue-hint">Druk op SPATIE</div>
         </div>
 
         <div id="gameover-screen">
             <div class="go-panel">
-                <div class="go-title">CHARMOT</div>
-                <div class="go-sub">She reached out of the dark, and the museum went quiet.</div>
-                <div class="go-stats">
-                    <span>Exhibits discovered</span><b id="go-found">0/2</b>
-                    <span>Survived</span><b id="go-time">0:00</b>
-                    <span>Danger at the end</span><b id="go-threat">0%</b>
+                <div class="logo-plate">
+                    <img src="assets/Pixel-Logo-41-frames-transparent.gif"
+                         alt="Design Museum Gent">
                 </div>
-                <button id="go-retry" onclick="restartRun()">Try Again</button>
+                <div class="go-title">KLIK!</div>
+                <div class="go-sub">MARLOT heeft haar foto, <b id="go-name">Bezoeker</b>.
+                    Morgen sta je op de affiche.</div>
+                <div class="go-stats">
+                    <span>Objecten gevonden</span><b id="go-found">0/0</b>
+                    <span>Onopgemerkt gebleven</span><b id="go-time">0:00</b>
+                    <span>Moeilijkheid bij de klik</span><b id="go-threat">0%</b>
+                </div>
+                <button id="go-retry" onclick="restartRun()">Opnieuw naar binnen</button>
+            </div>
+        </div>
+
+        <div id="boot-screen">
+            <div class="logo-plate">
+                <img src="assets/Pixel-Logo-41-frames-transparent.gif"
+                     alt="Design Museum Gent">
+            </div>
+            <div id="boot-title">HET MUSEUM WORDT INGERICHT</div>
+            <div id="boot-track"><div id="boot-bar"></div></div>
+            <div id="boot-status">Verbinden met Design Museum Gent&hellip;</div>
+            <div id="boot-note">Alle vier de zalen worden nu klaargezet, zodat je
+                daarna zonder wachten kan rondwandelen.</div>
+        </div>
+
+        <div id="start-screen">
+            <div id="start-title">MUSEUMDEX</div>
+            <div id="start-sub">
+                Je wandelt door Design Museum Gent en neemt elk stuk dat je
+                bekijkt op in je Museumdex. Let op <b>MARLOT</b> van het
+                communicatieteam: zij zoekt bezoekers voor de campagnebeelden,
+                en jij wil net rustig rondkijken. Krijgt ze jou op de foto, dan
+                is je bezoek voorbij.
+            </div>
+            <div id="start-form">
+                <label for="player-name">Hoe heet je?</label>
+                <input type="text" id="player-name" maxlength="14"
+                       placeholder="Bezoeker" autocomplete="off" spellcheck="false">
+                <button id="start-button">Naar binnen</button>
             </div>
         </div>
 
         <div id="pokedex-screen">
-            <h2>My Museumdex</h2>
-            <div id="dex-count">0 of 0 discovered</div>
+            <h2>Mijn Museumdex</h2>
+            <div id="dex-count">0 van 0 objecten gevonden</div>
             <div id="dex-list"></div>
-            <button id="dex-close" onclick="togglePokedex()">Close Menu</button>
+            <button id="dex-close" onclick="togglePokedex()">Sluiten (ESC)</button>
         </div>
     </div>
 
+    <div id="source-note"></div>
+
     <div id="controls">
-        <b>Arrows</b> or <b>WASD</b> to walk &nbsp;&middot;&nbsp; <b>SPACE</b> to inspect an exhibit &nbsp;&middot;&nbsp; <b>P</b> for the Museumdex
-        <br>Avoid <b style="color:#e0457b">CHARMOT</b> &mdash; the reticle shows where she is about to appear. Drag the DANGER slider to set the difficulty by hand.
+        <b>Pijltjes</b> of <b>WASD</b> om te stappen &nbsp;&middot;&nbsp; <b>SPATIE</b> om een object te bekijken &nbsp;&middot;&nbsp; <b>P</b> opent je Museumdex, <b>ESC</b> sluit ze
+        <br>Stap door een <b>deur</b> om naar een andere zaal te gaan. Ontwijk <b style="color:#e0457b">MARLOT</b> &mdash;
+        het kader verklapt vanwaar ze haar foto neemt. Sleep aan <b>MOEILIJKHEID</b> om zelf het tempo te kiezen, <b>AUTO</b> geeft het terug aan het spel.
     </div>
 
     <!-- Load the game logic -->

@@ -6,33 +6,416 @@
 // ==========================================
 
 // ==========================================
-// 1. GLOBAL STATE & MOCK API DATA
+// 1. GLOBAL STATE & THE COLLECTION API
 // ==========================================
 
-// The key is exhibit_<tile value>, so dropping that number on the map is what
-// places the piece. Add an entry here, an art function in EXHIBIT_ART, and a
-// tile on the map — the textures, the dialogue, the tick badges, the Museumdex
-// listing and the progress counter all follow on their own.
-const MuseumAPI = {
-    "exhibit_2": {
-        name: "T-Rex Skull",
-        description: "A massive fossilized skull from the late Cretaceous period. Its jaw held sixty serrated teeth, some as long as a human hand."
+// ------------------------------------------
+// Design Museum Gent — live collection data
+// ------------------------------------------
+// https://data.designmuseumgent.be/v2 — open, no key, CORS-enabled JSON-LD
+// over 9,879 catalogued objects. The vocabulary is CIDOC-CRM, so fields are
+// property codes rather than friendly names: crm:P108i_was_produced_by is
+// "who made it", crm:P45_consists_of is "what it is made of".
+//
+// Two things about the API shape drive the code below. The collection listing
+// is thin — a label and a IIIF manifest id, nothing more — so every exhibit
+// costs one extra detail request. And the detail response is generous: label,
+// curatorial description, photograph, maker, materials, techniques, real
+// dimensions and acquisition history, which is more than enough for a dex
+// entry.
+
+const DMG = {
+    BASE: 'https://data.designmuseumgent.be/v2/id',
+    TOTAL_OBJECTS: 9879,   // hydra:totalItems — used to pick a random page
+    TIMEOUT_MS: 8000,
+
+    // Every request is on a hard timeout: a slow museum must not mean a game
+    // that never boots. Both hosts have been seen to answer 500 or 504 in
+    // bursts and then recover within a second, so a failure is retried a
+    // couple of times before it counts.
+    RETRIES: 2,
+
+    async json(url) {
+        let lastError = null;
+
+        for (let attempt = 0; attempt <= DMG.RETRIES; attempt++) {
+            const abort = new AbortController();
+            const timer = setTimeout(() => abort.abort(), DMG.TIMEOUT_MS);
+            try {
+                const response = await fetch(url, { signal: abort.signal });
+
+                if (!response.ok) {
+                    const error = new Error('HTTP ' + response.status);
+                    error.status = response.status;
+                    throw error;
+                }
+                return await response.json();
+            } catch (error) {
+                lastError = error;
+
+                // A 4xx is a decision, not a hiccup — retrying a 403 or a 404
+                // just spends time to be told the same thing. 429 is the
+                // exception: that one is asking us to wait.
+                const definitive = error.status >= 400 && error.status < 500 && error.status !== 429;
+                if (definitive || attempt >= DMG.RETRIES) break;
+
+                await DMG.pause(250 * (attempt + 1));
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+        throw lastError;
     },
-    "exhibit_3": {
-        name: "Roman Vase",
-        description: "An ancient clay vessel used for transporting olive oil across the Mediterranean. The maker's stamp is still visible on the handle."
+
+    pause(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     },
-    "exhibit_4": {
-        name: "Funerary Mask",
-        description: "A pharaoh's death mask beaten from a single sheet of gold. The eyes are inlaid with obsidian and the stripes of the headdress are ground lapis lazuli."
+
+    // Photographs are loaded here rather than through Phaser's loader, for two
+    // reasons: the image host is intermittently flaky and needs retrying, and
+    // doing it before Phaser starts means the whole museum — every room — is
+    // in memory by the time the game appears.
+    async loadPhotos(records, onProgress) {
+        const report = onProgress || (() => {});
+        const withPhotos = records.filter(record => record.sprite);
+        let done = 0;
+
+        // Nothing to fetch — the collection came back without representations,
+        // which happens while the museum's image service is unavailable.
+        if (!withPhotos.length) {
+            report(1, 'Geen foto\u2019s beschikbaar \u2014 de objecten worden getekend');
+            return 0;
+        }
+
+        await Promise.all(withPhotos.map(async record => {
+            record.image = await DMG.loadImage(record.sprite);
+            done++;
+            report(done / withPhotos.length, 'Foto\u2019s van de objecten laden\u2026');
+        }));
+
+        return withPhotos.filter(record => record.image).length;
     },
-    "exhibit_5": {
-        name: "Brass Astrolabe",
-        description: "An instrument for reading the height of the stars. Navigators used one to find their latitude long before the compass reached Europe."
+
+    // crossOrigin is essential: without it the pixels cannot be read back out
+    // of a canvas, which is the whole pixelation step. The IIIF host sends
+    // Access-Control-Allow-Origin: *.
+    loadImage(url) {
+        return new Promise(async resolve => {
+            for (let attempt = 0; attempt <= DMG.RETRIES; attempt++) {
+                const image = await new Promise(done => {
+                    const candidate = new Image();
+                    candidate.crossOrigin = 'anonymous';
+                    candidate.onload = () => done(candidate);
+                    candidate.onerror = () => done(null);
+                    candidate.src = url;
+                });
+
+                if (image) return resolve(image);
+                if (attempt < DMG.RETRIES) await DMG.pause(400 * (attempt + 1));
+            }
+
+            console.warn('Museumdex: foto niet geladen na ' + (DMG.RETRIES + 1) + ' pogingen — ' + url);
+            resolve(null);
+        });
+    },
+
+    // JSON-LD gives a bare object where there is one value and an array where
+    // there are several, so every read goes through this first.
+    list(value) {
+        if (value === undefined || value === null) return [];
+        return Array.isArray(value) ? value : [value];
+    },
+
+    // Labels are usually a plain string, but the multilingual ones arrive as
+    // [{ '@value', '@language' }]. Dutch is preferred — that is the language
+    // the collection is catalogued in.
+    label(node) {
+        if (!node) return null;
+        const raw = node['rdfs:label'];
+        if (typeof raw === 'string') return raw;
+
+        const values = DMG.list(raw).filter(v => v && v['@value']);
+        const dutch = values.find(v => v['@language'] === 'nl');
+        return (dutch || values[0] || {})['@value'] || null;
+    },
+
+    // The curatorial text lives among the linguistic objects attached to the
+    // record, identified by its type rather than its position.
+    description(object) {
+        const refs = DMG.list(object['crm:P67i_is_referred_to_by']);
+        const match = refs.find(ref => DMG.label(ref['crm:P2_has_type']) === 'description');
+        return DMG.label(match) || null;
+    },
+
+    // Vessels are far and away the bulk of this collection — porcelain, glass
+    // and earthenware outnumber everything else — so a vessel silhouette is a
+    // fair stand-in for most photo-less objects. Anything else gets the crate,
+    // which reads as "not unpacked yet" rather than pretending to be a
+    // specific thing.
+    // ---- Categories, for when there is no photograph ----------------
+    // The museum's image service goes down independently of the data API, and
+    // when it does the catalogue text still arrives. So rather than dropping
+    // those objects or showing a wall of identical crates, each one is drawn as
+    // its broad category. Five buckets, chosen by running the museum's own type
+    // index (687 type names, ~12,950 objects) through this classifier: they
+    // cover 87% of the collection, and what is left over is mostly genuinely
+    // unspecific — "fragment", "onderdeel", "staal (monster)" — where a crate
+    // is the honest answer rather than a wrong guess.
+    //
+    // Matching is on word ENDINGS, not substrings, because Dutch compounds put
+    // the category in the final element: a `champagneglas` is a glass, a
+    // `bijzettafel` is a table, a `stapelstoel` is a chair. Suffix matching
+    // also avoids the trap that plain `includes` falls into, where "kandelaar"
+    // reads as a jug because "kan" sits inside it.
+    //
+    // Order matters — the first bucket to match wins, so the narrower
+    // categories are listed before the broad ones.
+    CATEGORIES: [
+        // 'kant' is deliberately absent: as a suffix it swallows 'ledikant',
+        // which is a bed. Lace shows up under its own compounds instead.
+        ['textile', ['servet', 'weefsel', 'stof', 'stoffering', 'fluweel', 'laken',
+                     'naaldkant', 'kloskant', 'kantwerk', 'tapijt', 'sjaal', 'doek',
+                     'damast', 'brokaat', 'zijde', 'textiel', 'handdoek', 'vitrage',
+                     'sprei', 'dekbed', 'stalenboek', 'borduurwerk', 'kussen', 'gordijn',
+                     'tule', 'lint', 'garen', 'wol', 'katoen', 'japon', 'kleed',
+                     'franje', 'passement', 'tressen']],
+        ['tile',    ['tegel', 'haardsteen', 'paneel', 'sierelement', 'plaquette', 'lambrisering',
+                     'baksteen', 'ornament', 'kader', 'tableau', 'fries', 'medaillon', 'reliëf']],
+        ['furniture', ['stoel', 'zetel', 'fauteuil', 'tafel', 'kast', 'bank', 'bed', 'ledikant', 'wieg',
+                       'buffet', 'commode', 'kabinet', 'rek', 'kruk', 'voetenbank', 'stoelsport',
+                       'meubel', 'meubelbeslag', 'ladegreep', 'sleutelplaat', 'scharnier',
+                       'tafelblad', 'spiegel', 'bureau', 'schab', 'poot', 'leuning', 'zitting',
+                       'vitrine', 'ladeknop']],
+        ['vessel',  ['vaas', 'vaatwerk', 'bord', 'schaal', 'schotel', 'kop', 'kom', 'pot', 'kan',
+                     'kruik', 'fles', 'glas', 'beker', 'terrine', 'servies', 'deksel', 'karaf',
+                     'bokaal', 'kelk', 'vloot', 'vat', 'dop', 'bus', 'kroes', 'mok', 'kuip',
+                     'emmer', 'tuit']],
+        ['device',  ['verpakking', 'schrijfmachine', 'strijkijzer', 'wafelijzer', 'stofzuiger',
+                     'lamp', 'armatuur', 'luchter', 'radio', 'telefoon', 'apparaat', 'machine',
+                     'toestel', 'prototype', 'dummy', 'maquette', 'ontwerp', 'kaart', 'affiche',
+                     'doos', 'dienblad', 'koffer', 'klok', 'horloge', 'ventilator', 'mixer',
+                     'ketel', 'bestek', 'lepel', 'vork', 'mes', 'tang', 'schaar', 'pan', 'plaat',
+                     'bak', 'logo', 'houder', 'beslag', 'sleutel', 'opener', 'weegschaal',
+                     'legger', 'lampenkap', 'fototoestel', 'blad', 'rooster', 'pers', 'molen',
+                     'zeef', 'trechter', 'schep']]
+    ],
+
+    // Dutch diminutives hide the head noun: schoteltje is a schotel, kannetje a
+    // kan, eierdopje a dop. Every applicable ending is tried rather than just
+    // the first that fits — "eierdopje" ends in both "-pje" and "-je", and only
+    // stripping "-je" leaves the "dop" that identifies it.
+    DIMINUTIVES: ['etje', 'tje', 'pje', 'kje', 'je'],
+
+    stemsOf(word) {
+        const stems = [word];
+
+        DMG.DIMINUTIVES.forEach(suffix => {
+            if (!word.endsWith(suffix) || word.length <= suffix.length + 2) return;
+
+            const base = word.slice(0, -suffix.length);
+            stems.push(base);
+
+            // Dutch doubles the consonant before the diminutive: kannetje.
+            if (base.length > 2 && base[base.length - 1] === base[base.length - 2]) {
+                stems.push(base.slice(0, -1));
+            }
+        });
+        return stems;
+    },
+
+    // Which drawn piece stands in for an object with no photograph, or null for
+    // the crate when the type says nothing useful.
+    fallbackArtFor(object) {
+        const types = DMG.list(object['crm:P2_has_type']).map(DMG.label).filter(Boolean);
+        const words = types.join(' ').toLowerCase().split(/[^a-zà-ÿ]+/).filter(Boolean);
+
+        for (const [category, keywords] of DMG.CATEGORIES) {
+            for (const word of words) {
+                for (const stem of DMG.stemsOf(word)) {
+                    if (keywords.some(keyword => keyword.length >= 3 && stem.endsWith(keyword))) {
+                        return category;
+                    }
+                }
+            }
+        }
+        return null;
+    },
+
+    // Rewrite a IIIF Image API url to a different width. The size segment is
+    // third from the end: .../full/{size}/{rotation}/default.jpg
+    iiifWidth(url, width) {
+        if (!url) return null;
+        const parts = url.split('/');
+        if (parts.length < 4) return url;
+        parts[parts.length - 3] = width + ',';
+        return parts.join('/');
+    },
+
+    // One API record, flattened into what the game actually reads.
+    normalise(object) {
+        const image = object.image || DMG.list(object['crm:P138i_has_representation'])[0] || null;
+        const source = image ? (image.thumbnail || image['@id']) : null;
+        const production = DMG.list(object['crm:P108i_was_produced_by'])[0] || null;
+        const acquisition = object['crm:P24i_changed_ownership_through'] || null;
+
+        const dimensions = DMG.list(object['crm:P43_has_dimension'])
+            .map(dimension => ({
+                axis: DMG.label(dimension['crm:P2_has_type']),
+                value: dimension['crm:P90_has_value'],
+                unit: DMG.label(dimension['crm:P91_has_unit'])
+            }))
+            .filter(dimension => dimension.axis && dimension.value !== undefined);
+
+        return {
+            pid: String(object['@id'] || '').split('/').pop(),
+            name: DMG.label(object),
+            description: DMG.description(object),
+            // Which drawn piece stands in when there is no photograph. The
+            // museum's image service goes down independently of the data API,
+            // and when it does the catalogue text still arrives — so an
+            // exhibit without a photo is still a real exhibit.
+            art: DMG.fallbackArtFor(object),
+            // The dex shows the 400px render; the plinth sprite only ever
+            // needs 64px, and asking IIIF for that keeps the boot download to
+            // about a kilobyte per exhibit.
+            photo: source,
+            sprite: DMG.iiifWidth(source, 64),
+            credit: image ? (image['crm:P3_has_note'] || null) : null,
+            types: DMG.list(object['crm:P2_has_type']).map(DMG.label).filter(Boolean),
+            materials: DMG.list(object['crm:P45_consists_of']).map(DMG.label).filter(Boolean),
+            maker: production ? DMG.label(production['crm:P14_carried_out_by']) : null,
+            place: production ? DMG.label(production['crm:P7_took_place_at']) : null,
+            techniques: production
+                ? DMG.list(production['crm:P32_used_general_technique']).map(DMG.label).filter(Boolean)
+                : [],
+            acquired: acquisition ? DMG.label(acquisition['crm:P4_has_time-span']) : null,
+            acquiredHow: acquisition ? DMG.label(acquisition['crm:P2_has_type']) : null,
+            dimensions: dimensions,
+            url: object['@id'] || null
+        };
+    },
+
+    // One uniformly random object out of the whole collection: ask for a page
+    // of exactly one item, at a random page number.
+    async randomObject() {
+        const page = 1 + Math.floor(Math.random() * DMG.TOTAL_OBJECTS);
+        const listing = await DMG.json(DMG.BASE + '/objects?page=' + page + '&itemsPerPage=1');
+        const member = DMG.list(listing['hydra:member'])[0];
+        return member ? String(member['@id'] || '').split('/').pop() : null;
+    },
+
+    // Catalogue numbers of the form 1998-0024_044-755 are the 44th of 755
+    // fragments of one album. Two of those side by side is a dull museum, so
+    // exhibits are kept to one per set.
+    setOf(pid) {
+        return String(pid).split('_')[0];
+    },
+
+    // A different museum every launch. Each exhibit is drawn independently
+    // from the full collection rather than off one page — consecutive
+    // catalogue numbers are usually variants of the same object, so a single
+    // page would hand back four views of the same album.
+    //
+    // Candidates are over-sampled because a record can turn out to have no
+    // photograph or no description, which makes a poor exhibit and gets it
+    // dropped.
+    async randomExhibits(count, onProgress) {
+        const report = onProgress || (() => {});
+
+        // Draw twice what is needed, since records with no photograph or no
+        // description get dropped further down.
+        const wanted = count * 2;
+        let drawn = 0;
+
+        const draws = await Promise.allSettled(
+            Array.from({ length: wanted }, () => DMG.randomObject().finally(() => {
+                drawn++;
+                report(drawn / wanted * 0.4, 'Objecten kiezen uit de collectie\u2026');
+            }))
+        );
+
+        const pids = [];
+        const seenSets = new Set();
+        draws.forEach(draw => {
+            const pid = draw.status === 'fulfilled' ? draw.value : null;
+            if (!pid) return;
+
+            const set = DMG.setOf(pid);
+            if (seenSets.has(set)) return;
+            seenSets.add(set);
+            pids.push(pid);
+        });
+
+        // Detail requests are independent, so they go out together rather than
+        // one after another. allSettled, not all: one dead record should cost
+        // one exhibit, not the whole floor.
+        let fetched = 0;
+        const settled = await Promise.allSettled(
+            pids.map(pid => DMG.json(DMG.BASE + '/object/' + pid).finally(() => {
+                fetched++;
+                report(0.4 + fetched / pids.length * 0.6, 'Objectgegevens ophalen\u2026');
+            }))
+        );
+
+        // A name and a description are what make an exhibit; the photograph is
+        // a bonus. Requiring one would mean an image-service outage threw away
+        // every real object and left the player with demo pieces, when the
+        // catalogue text was there the whole time.
+        return settled
+            .filter(result => result.status === 'fulfilled')
+            .map(result => DMG.normalise(result.value))
+            .filter(record => record.name && record.description)
+            .slice(0, count);
     }
 };
 
-const TOTAL_EXHIBITS = Object.keys(MuseumAPI).length;
+// ------------------------------------------
+// The exhibits in play
+// ------------------------------------------
+// The key is exhibit_<tile value>, so the number on the map is what places a
+// piece. MuseumAPI is filled by installExhibits() during boot — from the
+// museum if it answers, from FALLBACK_EXHIBITS if it does not.
+
+const MuseumAPI = {};
+
+// Enough of a museum to play with no network. These four keep their hand-drawn
+// art; anything arriving from the API is rendered from its own photograph.
+const FALLBACK_EXHIBITS = [
+    {
+        name: "Schedel van een T-rex",
+        description: "Een massieve gefossiliseerde schedel uit het late Krijt. In de kaak stonden zestig gezaagde tanden, sommige zo lang als een mensenhand.",
+        art: 'skull'
+    },
+    {
+        name: "Romeinse vaas",
+        description: "Een aardewerken kruik waarin olijfolie de Middellandse Zee overstak. Het stempel van de maker staat nog op het handvat.",
+        art: 'vase'
+    },
+    {
+        name: "Dodenmasker van een farao",
+        description: "Een dodenmasker, geslagen uit \u00e9\u00e9n blad goud. De ogen zijn ingelegd met obsidiaan, de strepen van de hoofdtooi met gemalen lapis lazuli.",
+        art: 'mask'
+    },
+    {
+        name: "Astrolabium in messing",
+        description: "Een instrument om de hoogte van de sterren te lezen. Zeevaarders vonden er hun breedtegraad mee, lang voor het kompas Europa bereikte.",
+        art: 'astrolabe'
+    }
+];
+
+let TOTAL_EXHIBITS = 0;
+
+// Tile values are handed out in order from 2, which is what the map is drawn
+// against. Everything downstream — textures, dialogue, badges, the dex, the
+// progress counter — reads MuseumAPI, so this is the only place that needs to
+// know where the exhibits came from.
+function installExhibits(records) {
+    for (const key in MuseumAPI) delete MuseumAPI[key];
+    records.forEach((record, index) => {
+        MuseumAPI['exhibit_' + (index + 2)] = record;
+    });
+    TOTAL_EXHIBITS = records.length;
+}
 
 // Tile values 2 and up are exhibits; which ones exist is decided entirely by
 // what the API returned.
@@ -45,17 +428,18 @@ function tileValueFor(exhibitId) {
 }
 
 const GameState = {
+    playerName: 'Bezoeker',
     sessionPokedex: new Set(),
     isReading: false,        // dialogue box is open
     dexOpen: false,          // pokedex overlay is open
-    gameOver: false,         // CHARMOT got you
+    gameOver: false,         // MARLOT got her photo
     threatOverride: null     // set by the demo slider; null = automatic ramp
 };
 
 // Everything that should freeze the world routes through here: player
-// movement, the interaction prompt, and CHARMOT herself. That last one
-// matters — without it she could materialise on you while you're reading
-// an exhibit, which is a death you had no way to avoid.
+// movement, the interaction prompt, and MARLOT herself. That last one
+// matters — without it she could line up a shot while you're reading an
+// exhibit, which is a photo you had no way to dodge.
 function uiIsBlocking() {
     return GameState.isReading || GameState.dexOpen || GameState.gameOver;
 }
@@ -100,14 +484,44 @@ const PALETTE = {
     brass:    '#c99a3f',
     brassDark:'#8f6a26',
 
-    // CHARMOT
-    gown:     '#3b2246',
-    gownDark: '#271531',
-    hair:     '#171320',
-    pallor:   '#e8e2ef',
-    pallorDk: '#c9c2d4',
-    hollow:   '#0d0a12',
-    warn:     '#e0457b'
+    // Category stand-ins for objects with no photograph
+    wood:      '#8a5a33',
+    woodDark:  '#5f3d21',
+    woodLt:    '#a9743f',
+    ceramic:   '#e8eef2',
+    ceramicDk: '#b9c7d1',
+    cobalt:    '#3a5fa8',
+    cobaltDk:  '#26407a',
+    cloth:     '#c8536e',
+    clothDk:   '#9c3550',
+    clothLt:   '#e0798f',
+    steel:     '#b0b6bd',
+    steelDk:   '#7b8288',
+    steelLt:   '#d7dbdf',
+    glassBlue: '#8fb8cf',
+
+    // MARLOT — museum communications team
+    blazer:    '#c2385c',
+    blazerLt:  '#e05878',
+    blazerDk:  '#8e2340',
+    press:     '#f4eee6',
+    lanyard:   '#2b2b38',
+    badge:     '#f5c451',
+    hairPr:    '#3a2418',
+    hairPrLt:  '#57371f',
+    camera:    '#2b2b36',
+    cameraLt:  '#4a4a5c',
+    cameraDk:  '#16161e',
+    lens:      '#1d2a3a',
+    lensLt:    '#4f7fb0',
+    flash:     '#f7f3e8',
+    warn:      '#e0457b',
+
+    // Doorway between rooms
+    doorDark:  '#2b2119',
+    doorWarm:  '#6d4b2c',
+    doorGlow:  '#f5c451',
+    doorLt:    '#8f6a3f'
 };
 
 // Create a canvas-backed texture and hand its 2D context to a draw function.
@@ -257,19 +671,309 @@ function drawAstrolabe(px) {
         px(cx - 5, cy - 5, 1, 1, '#ffffff', 0.5);
 }
 
-const EXHIBIT_ART = {
-    exhibit_2: drawSkull,
-    exhibit_3: drawVase,
-    exhibit_4: drawMask,
-    exhibit_5: drawAstrolabe
+// --- Category stand-ins, for objects that arrived without a photograph ---
+// One piece per broad category from DMG.CATEGORIES. Between them they cover
+// about 87% of the collection, so an image-service outage leaves a museum of
+// roughly the right shapes rather than a room of identical crates.
+
+// A side chair: two back posts, two slats, a seat, four legs.
+function drawFurniture(px) {
+    px(10, 3, 2, 12, PALETTE.woodDark);      // back posts
+    px(19, 3, 2, 12, PALETTE.woodDark);
+    px(10, 4, 11, 2, PALETTE.wood);          // slats
+    px(10, 8, 11, 2, PALETTE.wood);
+    px(11, 3, 1, 12, PALETTE.woodLt, 0.5);   // highlight down the near post
+    px(9, 15, 13, 3, PALETTE.woodLt);        // seat
+    px(9, 17, 13, 1, PALETTE.woodDark);
+    px(10, 18, 2, 3, PALETTE.woodDark);      // front legs
+    px(19, 18, 2, 3, PALETTE.woodDark);
+    px(10, 20, 11, 1, PALETTE.woodDark, 0.4);
+}
+
+// A wall tile, propped up to be seen: cobalt on white, the way most of the
+// museum's 540 of them are painted.
+function drawTile(px) {
+    px(9, 5, 14, 14, PALETTE.ceramicDk);     // edge
+    px(10, 6, 12, 12, PALETTE.ceramic);      // glazed face
+    px(11, 7, 2, 2, PALETTE.cobalt);         // corner motifs
+    px(19, 7, 2, 2, PALETTE.cobalt);
+    px(11, 15, 2, 2, PALETTE.cobalt);
+    px(19, 15, 2, 2, PALETTE.cobalt);
+    px(15, 10, 2, 4, PALETTE.cobalt);        // centre rosette
+    px(14, 11, 4, 2, PALETTE.cobalt);
+    px(15, 9, 2, 1, PALETTE.cobaltDk);
+    px(15, 14, 2, 1, PALETTE.cobaltDk);
+    px(10, 6, 12, 1, '#ffffff', 0.4);        // glaze sheen
+    px(9, 19, 14, 1, PALETTE.stoneLow);      // where it meets the plinth
+}
+
+// A bolt of cloth hung to display the weave, with a scalloped hem.
+function drawTextile(px) {
+    px(9, 5, 14, 11, PALETTE.cloth);
+    px(9, 5, 14, 1, PALETTE.clothLt);
+    px(9, 5, 1, 11, PALETTE.clothLt, 0.5);
+    px(13, 6, 1, 10, PALETTE.clothDk, 0.6);  // folds
+    px(17, 6, 1, 10, PALETTE.clothDk, 0.6);
+    px(9, 9, 14, 1, PALETTE.bone, 0.7);      // selvedge stripe
+    px(9, 16, 14, 1, PALETTE.clothDk);
+    for (let x = 9; x < 23; x += 4) {        // scalloped hem
+        px(x, 16, 3, 2, PALETTE.cloth);
+        px(x + 1, 18, 1, 1, PALETTE.clothDk);
+    }
+}
+
+// A boxy appliance: dark panel, lit display, one brass dial. Stands in for the
+// packaging, prototypes, lamps and machines that make up the design half of
+// the collection.
+function drawDevice(px) {
+    px(8, 8, 16, 11, PALETTE.steel);         // housing
+    px(8, 8, 16, 1, PALETTE.steelLt);
+    px(8, 18, 16, 1, PALETTE.steelDk);
+    px(23, 9, 1, 10, PALETTE.steelDk);
+    px(10, 10, 9, 5, PALETTE.ink);           // front panel
+    px(11, 11, 7, 3, PALETTE.glassBlue);     // display
+    px(11, 11, 7, 1, '#ffffff', 0.3);
+    px(20, 11, 3, 3, PALETTE.gold);          // dial
+    px(21, 12, 1, 1, PALETTE.ink);
+    px(20, 16, 3, 1, PALETTE.steelDk);       // vents
+    px(10, 16, 6, 1, PALETTE.steelDk);
+    px(10, 19, 3, 2, PALETTE.ink);           // feet
+    px(19, 19, 3, 2, PALETTE.ink);
+}
+
+// The drawn pieces, keyed by the `art` name a fallback exhibit asks for.
+const PROCEDURAL_ART = {
+    // The offline demo pieces ask for these by name.
+    skull: drawSkull,
+    vase: drawVase,
+    mask: drawMask,
+    astrolabe: drawAstrolabe,
+
+    // The category stand-ins, keyed by the names DMG.CATEGORIES hands out.
+    // 'vessel' shares the vase, which is what a vessel category should look
+    // like anyway.
+    vessel: drawVase,
+    furniture: drawFurniture,
+    tile: drawTile,
+    textile: drawTextile,
+    device: drawDevice
 };
 
-// One texture per exhibit the API returned — no hand-maintained list.
+// Shown when an exhibit has neither a photograph nor drawn art: a crated
+// piece, still in from storage.
+function drawUnknownExhibit(px) {
+    px(9, 8, 14, 12, PALETTE.clayDark);          // crate
+    px(9, 8, 14, 2, PALETTE.clay);               // lid
+    px(9, 13, 14, 1, PALETTE.clay, 0.6);         // banding
+    px(15, 11, 2, 5, PALETTE.bone);              // stencilled ?
+    px(14, 11, 4, 1, PALETTE.bone);
+    px(15, 17, 2, 2, PALETTE.bone);
+}
+
+// ------------------------------------------
+// Museum photographs, reduced to sprite scale
+// ------------------------------------------
+// The plinth art has to sit next to hand-drawn pixels without looking like a
+// pasted JPEG, so a 64px IIIF render goes through three steps: downsample with
+// smoothing off, lift the photographer's backdrop, and collapse the result
+// onto a coarse palette.
+
+// The space above the plinth top, in texture pixels.
+const PHOTO_BOX = { x: 6, y: 3, w: 20, h: 17 };
+
+function drawPhotoExhibit(ctx, sourceImage) {
+    const scale = Math.min(PHOTO_BOX.w / sourceImage.width, PHOTO_BOX.h / sourceImage.height);
+    const width = Math.max(1, Math.round(sourceImage.width * scale));
+    const height = Math.max(1, Math.round(sourceImage.height * scale));
+
+    // Centred horizontally, but bottom-aligned — the piece should stand on the
+    // plinth rather than float above it.
+    const x = PHOTO_BOX.x + Math.floor((PHOTO_BOX.w - width) / 2);
+    const y = PHOTO_BOX.y + (PHOTO_BOX.h - height);
+
+    // Downsample on a canvas of its own, so the backdrop lift below only ever
+    // reads the photograph and never the plinth already drawn underneath.
+    const stage = document.createElement('canvas');
+    stage.width = width;
+    stage.height = height;
+
+    const stageCtx = stage.getContext('2d');
+
+    // Smoothing ON for this one step, which is the opposite of what pixel art
+    // usually wants. 64px down to 20px is worse than a 3:1 ratio: sampling
+    // single pixels throws away five of every six and comes out as confetti,
+    // where averaging each block gives a clean, readable shape. Posterising
+    // straight after is what makes the result read as pixel art.
+    stageCtx.imageSmoothingEnabled = true;
+    stageCtx.imageSmoothingQuality = 'high';
+    stageCtx.drawImage(sourceImage, 0, 0, width, height);
+
+    const pixels = stageCtx.getImageData(0, 0, width, height);
+    liftBackdrop(pixels);
+    posterise(pixels);
+    stageCtx.putImageData(pixels, 0, 0);
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(stage, x, y);
+}
+
+// Collection photography is shot on a plain sweep, so the backdrop can be
+// removed by flooding inwards from the edges and clearing anything close to
+// the colour found there. Flooding rather than a flat colour match is the
+// point: a white porcelain vase on a white backdrop would otherwise come out
+// full of holes.
+//
+// The tolerance is deliberately tight. Museum objects are very often pale and
+// neutral — the same colour family as the sweep they are shot on — so a
+// generous threshold eats the object instead of the background. At 60 it
+// removed a faience plate and most of a radiogram; at this value both survive,
+// at the cost of leaving a little backdrop where the studio lighting fell off.
+const BACKDROP_TOLERANCE = 18;
+
+function liftBackdrop(pixels) {
+    const width = pixels.width;
+    const height = pixels.height;
+    const data = pixels.data;
+
+    // Reference colour: the median of the border pixels. Median rather than
+    // mean, so one dark corner cannot drag the reference along with it.
+    const reds = [];
+    const greens = [];
+    const blues = [];
+    const sample = (x, y) => {
+        const i = (y * width + x) * 4;
+        reds.push(data[i]);
+        greens.push(data[i + 1]);
+        blues.push(data[i + 2]);
+    };
+    for (let x = 0; x < width; x++) { sample(x, 0); sample(x, height - 1); }
+    for (let y = 0; y < height; y++) { sample(0, y); sample(width - 1, y); }
+
+    const median = values => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const red = median(reds);
+    const green = median(greens);
+    const blue = median(blues);
+
+    const isBackdrop = (i) => {
+        const dr = data[i] - red;
+        const dg = data[i + 1] - green;
+        const db = data[i + 2] - blue;
+        return Math.sqrt(dr * dr + dg * dg + db * db) <= BACKDROP_TOLERANCE;
+    };
+
+    // Seed the flood with every border pixel, then walk inwards. The queue
+    // holds x and y as alternating entries rather than as pairs — one flat
+    // array instead of thousands of throwaway ones.
+    const seen = new Uint8Array(width * height);
+    const queue = [];
+    for (let x = 0; x < width; x++) queue.push(x, 0, x, height - 1);
+    for (let y = 0; y < height; y++) queue.push(0, y, width - 1, y);
+
+    while (queue.length) {
+        const y = queue.pop();
+        const x = queue.pop();
+        if (x < 0 || y < 0 || x >= width || y >= height) continue;
+
+        const position = y * width + x;
+        if (seen[position]) continue;
+        seen[position] = 1;
+
+        const i = position * 4;
+        if (!isBackdrop(i)) continue;
+
+        data[i + 3] = 0;
+        queue.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+    }
+
+    featherEdge(pixels, red, green, blue);
+}
+
+// Averaging the downsample leaves a ring of half-object, half-backdrop pixels
+// that the tight flood above will not touch, and it reads as a white halo. So
+// a second, looser pass runs afterwards — but each round may only advance one
+// pixel inward from what is already transparent, and only two rounds run. That
+// bound is what keeps it honest: it can shave a two-pixel fringe off the
+// silhouette, and it cannot tunnel into the middle of a pale object the way a
+// looser flood would.
+const FEATHER_TOLERANCE = 45;
+const FEATHER_PASSES = 2;
+
+function featherEdge(pixels, red, green, blue) {
+    const width = pixels.width;
+    const height = pixels.height;
+    const data = pixels.data;
+
+    for (let pass = 0; pass < FEATHER_PASSES; pass++) {
+        const doomed = [];
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                if (data[i + 3] === 0) continue;
+
+                const dr = data[i] - red;
+                const dg = data[i + 1] - green;
+                const db = data[i + 2] - blue;
+                if (Math.sqrt(dr * dr + dg * dg + db * db) > FEATHER_TOLERANCE) continue;
+
+                // Only a pixel already touching cleared space may go, which is
+                // what limits each pass to one pixel of advance.
+                const touchesCleared =
+                    (x + 1 < width  && data[(y * width + x + 1) * 4 + 3] === 0) ||
+                    (x - 1 >= 0     && data[(y * width + x - 1) * 4 + 3] === 0) ||
+                    (y + 1 < height && data[((y + 1) * width + x) * 4 + 3] === 0) ||
+                    (y - 1 >= 0     && data[((y - 1) * width + x) * 4 + 3] === 0);
+
+                if (touchesCleared) doomed.push(i);
+            }
+        }
+
+        // Cleared together, after the scan — clearing as we went would let one
+        // pass cascade across the whole sprite in a single sweep.
+        doomed.forEach(i => { data[i + 3] = 0; });
+    }
+}
+
+// Six levels per channel keeps an object readable at twenty pixels wide while
+// losing the photographic gradients that would give it away next to the drawn
+// art.
+function posterise(pixels) {
+    const data = pixels.data;
+    const step = 255 / 5;
+
+    for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] === 0) continue;
+        data[i]     = Math.round(data[i] / step) * step;
+        data[i + 1] = Math.round(data[i + 1] / step) * step;
+        data[i + 2] = Math.round(data[i + 2] / step) * step;
+    }
+}
+
+// One texture per exhibit in play. A piece with a photograph loaded is
+// rendered from it; the offline fallbacks fall back to their drawn art.
 function makeExhibitTextures(scene) {
     Object.keys(MuseumAPI).forEach(id => {
-        makeTexture(scene, 'exhibit-' + tileValueFor(id), 32, 32, (px) => {
+        const record = MuseumAPI[id];
+        const tile = tileValueFor(id);
+        const photoKey = 'photo-' + tile;
+
+        // The photo may be missing because the record had none, or because the
+        // load failed — both land here as "no texture", and both draw instead.
+        const photo = scene.textures.exists(photoKey)
+            ? scene.textures.get(photoKey).getSourceImage()
+            : null;
+
+        makeTexture(scene, 'exhibit-' + tile, 32, 32, (px, ctx) => {
             drawPedestal(px);
-            EXHIBIT_ART[id](px);
+
+            if (photo) {
+                drawPhotoExhibit(ctx, photo);
+            } else if (PROCEDURAL_ART[record.art]) {
+                PROCEDURAL_ART[record.art](px);
+            } else {
+                drawUnknownExhibit(px);
+            }
+
             drawCaseGlare(px);
         });
     });
@@ -351,45 +1055,80 @@ function drawPlayerFrame(pxRaw, ox, oy, dir, step) {
     }
 }
 
-// --- CHARMOT: a pale woman in a long gown, hair over her shoulders ---
-function makeCharmotTexture(scene) {
-    makeTexture(scene, 'charmot', 32, 32, (px) => {
-        // Gown, tapering into a wisp instead of feet.
-        px(9, 15, 14, 9, PALETTE.gown);
-        px(8, 18, 16, 6, PALETTE.gown);
-        px(10, 24, 12, 3, PALETTE.gownDark);
-        px(11, 27, 10, 2, PALETTE.gownDark, 0.7);
-        px(12, 29, 8, 2, PALETTE.gownDark, 0.4);
+// --- MARLOT: the museum's communications team, camera already raised ---
+// She reads as staff rather than as a monster: lanyard, blazer, and a camera
+// held up to her eye. The threat is the shutter, so the camera is the thing
+// the sprite puts front and centre.
+function makeMarlotTexture(scene) {
+    makeTexture(scene, 'marlot', 32, 32, (px) => {
+        // Legs and shoes.
+        px(12, 24, 3, 6, PALETTE.pants);
+        px(17, 24, 3, 6, PALETTE.pants);
+        px(11, 29, 4, 2, PALETTE.shoe);
+        px(17, 29, 4, 2, PALETTE.shoe);
 
-        // Sleeves, with pale hands at the cuffs.
-        px(6, 16, 3, 7, PALETTE.gown);
-        px(23, 16, 3, 7, PALETTE.gown);
-        px(6, 22, 3, 2, PALETTE.pallor);
-        px(23, 22, 3, 2, PALETTE.pallor);
+        // Blazer over a bright top — museum-staff smart.
+        px(10, 14, 12, 11, PALETTE.blazer);
+        px(14, 15, 4, 9, PALETTE.press);
+        px(10, 14, 12, 1, PALETTE.blazerLt);
+        px(9, 24, 14, 1, PALETTE.blazerDk);
 
-        // Hair falls behind the shoulders, so it goes down before the face.
-        px(8, 3, 16, 15, PALETTE.hair);
-        px(7, 6, 2, 11, PALETTE.hair);
-        px(23, 6, 2, 11, PALETTE.hair);
+        // Lanyard: two straps meeting at a badge on the chest.
+        px(13, 14, 1, 4, PALETTE.lanyard);
+        px(18, 14, 1, 4, PALETTE.lanyard);
+        px(14, 18, 4, 3, PALETTE.badge);
+        px(15, 19, 2, 1, PALETTE.ink, 0.5);
 
-        // Face
-        px(12, 7, 8, 9, PALETTE.pallor);
-        px(12, 15, 8, 1, PALETTE.pallorDk);
-        px(12, 7, 8, 1, '#ffffff', 0.35);
+        // Hair: a short bob, tucked behind the ears.
+        px(10, 3, 12, 8, PALETTE.hairPr);
+        px(9, 5, 2, 7, PALETTE.hairPr);
+        px(21, 5, 2, 7, PALETTE.hairPr);
+        px(10, 3, 12, 1, PALETTE.hairPrLt);
 
-        // Fringe and side locks framing it.
-        px(11, 4, 10, 4, PALETTE.hair);
-        px(11, 7, 2, 9, PALETTE.hair);
-        px(19, 7, 2, 9, PALETTE.hair);
+        // Face, mostly hidden behind the viewfinder.
+        px(12, 8, 8, 7, PALETTE.skin);
+        px(12, 14, 8, 1, PALETTE.skinDark);
+        px(14, 13, 4, 1, '#b4635a');        // a working smile
 
-        // Hollow eyes, thin mouth.
-        px(13, 10, 2, 3, PALETTE.hollow);
-        px(17, 10, 2, 3, PALETTE.hollow);
-        px(15, 14, 2, 1, '#8d7f9b');
+        // Arms come forward to hold the camera up.
+        px(7, 15, 3, 5, PALETTE.blazer);
+        px(22, 15, 3, 5, PALETTE.blazer);
+        px(8, 12, 3, 4, PALETTE.skin);
+        px(21, 12, 3, 4, PALETTE.skin);
+
+        // The camera itself, across her eyes.
+        px(10, 8, 12, 6, PALETTE.camera);
+        px(10, 8, 12, 1, PALETTE.cameraLt);
+        px(10, 13, 12, 1, PALETTE.cameraDk);
+        px(13, 6, 5, 2, PALETTE.cameraDk);   // prism hump
+        px(19, 9, 3, 2, PALETTE.flash);      // hotshoe flash
+        px(19, 9, 3, 1, '#ffffff', 0.6);
+
+        // Lens barrel, pointed straight at the player.
+        px(13, 9, 6, 6, PALETTE.cameraDk);
+        px(14, 10, 4, 4, PALETTE.lens);
+        px(15, 11, 2, 2, PALETTE.lensLt);
+        px(15, 11, 1, 1, '#ffffff', 0.85);   // glint on the glass
     });
 }
 
-// The tile reticle that warns you where she is about to become solid.
+// The doorway between rooms: an open arch with a warm spill of light.
+function makeDoorTexture(scene) {
+    makeTexture(scene, 'door', 32, 32, (px) => {
+        px(4, 2, 24, 30, PALETTE.doorDark);
+        px(6, 4, 20, 28, PALETTE.doorWarm);
+        px(8, 7, 16, 25, PALETTE.doorGlow, 0.55);
+        px(6, 4, 20, 1, PALETTE.doorLt);
+        px(6, 4, 1, 28, PALETTE.doorLt, 0.6);
+        px(25, 4, 1, 28, PALETTE.doorDark);
+        // A threshold strip, so the tile still reads as walkable floor.
+        px(4, 29, 24, 3, PALETTE.stoneTop);
+        px(4, 31, 24, 1, PALETTE.stoneLow);
+    });
+}
+
+// The autofocus frame that shows you where she is about to line up a shot —
+// the same corner brackets a camera puts over its subject.
 function makeWarnTexture(scene) {
     makeTexture(scene, 'warn', 32, 32, (px) => {
         px(2, 2, 28, 28, PALETTE.warn, 0.12);
@@ -397,6 +1136,9 @@ function makeWarnTexture(scene) {
         px(21, 2, 9, 3, PALETTE.warn);   px(27, 2, 3, 9, PALETTE.warn);
         px(2, 27, 9, 3, PALETTE.warn);   px(2, 21, 3, 9, PALETTE.warn);
         px(21, 27, 9, 3, PALETTE.warn);  px(27, 21, 3, 9, PALETTE.warn);
+        // Centre crosshair, to sell it as a viewfinder rather than a hazard.
+        px(15, 13, 2, 6, PALETTE.warn, 0.5);
+        px(13, 15, 6, 2, PALETTE.warn, 0.5);
     });
 }
 
@@ -424,17 +1166,23 @@ function makeMarkerTextures(scene) {
 }
 
 // ==========================================
-// 3. CHARMOT
+// 3. MARLOT
 //
-// She is not an NPC that walks around — she is a four-state cycle:
+// She works in the museum's communications team. She is not hunting you to
+// hurt you — she wants
+// you in the campaign: a candid visitor shot for the website, the posters, the
+// socials. You came to look at the collection quietly, so being photographed
+// is the thing you lose to.
+//
+// Mechanically she is not an NPC that walks around, but a four-state cycle:
 //
 //   HIDDEN -> TELEGRAPH -> SOLID -> FADING -> HIDDEN
-//   (gone)   (visible,     (visible, (visible,
-//             harmless)     LETHAL)   harmless)
+//   (gone)   (lining up     (SHUTTER  (lowering
+//             the shot)      FIRES)    the camera)
 //
-// Only SOLID kills. TELEGRAPH puts a reticle on the tile she is about to
-// occupy, so every death is one the player could see coming. Difficulty is
-// mostly a question of how long that warning lasts.
+// Only SOLID catches you. TELEGRAPH puts an autofocus frame on the tile she is
+// about to shoot from, so every photo is one you could see coming. Difficulty
+// is mostly a question of how long that warning lasts.
 // ==========================================
 
 const PHASE = { HIDDEN: 'hidden', TELEGRAPH: 'telegraph', SOLID: 'solid', FADING: 'fading' };
@@ -459,7 +1207,7 @@ function difficultyFor(threat) {
     };
 }
 
-class Charmot {
+class Marlot {
     constructor(scene, index) {
         this.scene = scene;
         this.index = index;
@@ -473,7 +1221,7 @@ class Charmot {
         this.wait = 3000 + index * 1200;
 
         this.marker = scene.add.image(0, 0, 'warn').setDepth(4).setVisible(false);
-        this.sprite = scene.add.image(0, 0, 'charmot').setDepth(9).setVisible(false);
+        this.sprite = scene.add.image(0, 0, 'marlot').setDepth(9).setVisible(false);
     }
 
     get isLethal()  { return this.phase === PHASE.SOLID; }
@@ -570,7 +1318,8 @@ class Charmot {
         this.marker.setPosition(cx, cy);
     }
 
-    // Late-game pursuit: one tile at a time, favouring the longer axis so
+    // Late-game pursuit: she stops waiting for you to wander into frame and
+    // starts repositioning, one tile at a time, favouring the longer axis so
     // she closes in cleanly instead of jittering on the diagonal.
     stepTowardPlayer() {
         const s = this.scene;
@@ -585,7 +1334,7 @@ class Charmot {
             const nx = this.gridX + ox;
             const ny = this.gridY + oy;
             if (!s.isWalkable(nx, ny)) continue;
-            if (s.tileHasCharmot(nx, ny, this)) continue;
+            if (s.tileHasMarlot(nx, ny, this)) continue;
             this.placeAt(nx, ny);
             return;
         }
@@ -593,7 +1342,158 @@ class Charmot {
 }
 
 // ==========================================
-// 4. PHASER GAME SCENE
+// 4. THE MUSEUM FLOOR PLAN
+// ==========================================
+
+// Rooms are authored as text, one character per tile — a grid of numbers stops
+// being readable once there are four of them:
+//
+//   #  wall            .  floor
+//   E  plinth          1-9  a doorway, keyed to this room's `exits`
+//
+// Every plinth needs a walkable tile directly below it, which is where the
+// player stands to inspect it. Every doorway sits in a boundary wall and is
+// walkable — stepping onto one carries you into the next room.
+
+const ROOMS = [
+    {
+        key: 'inkomhal',
+        name: 'Inkomhal',
+        rows: [
+            '###############',
+            '#.............#',
+            '#...E.....E...#',
+            '#.............#',
+            '#......#......1',
+            '#.............#',
+            '#...E.....E...#',
+            '#.............#',
+            '#.............#',
+            '######2########'
+        ],
+        exits: {
+            1: { to: 'keramiek', at: [1, 4] },
+            2: { to: 'meubels',  at: [6, 1] }
+        }
+    },
+    {
+        key: 'keramiek',
+        name: 'Keramiekzaal',
+        rows: [
+            '###############',
+            '#....E...E....#',
+            '#.............#',
+            '#.....###.....#',
+            '1.............#',
+            '#.............#',
+            '#....E...E....#',
+            '#.............#',
+            '#.............#',
+            '########2######'
+        ],
+        exits: {
+            1: { to: 'inkomhal', at: [13, 4] },
+            2: { to: 'design',   at: [8, 1] }
+        }
+    },
+    {
+        key: 'meubels',
+        name: 'Meubelzaal',
+        rows: [
+            '######1########',
+            '#.............#',
+            '#..E.......E..#',
+            '#.............#',
+            '#.###.....###.2',
+            '#.............#',
+            '#..E.......E..#',
+            '#.............#',
+            '#.............#',
+            '###############'
+        ],
+        exits: {
+            1: { to: 'inkomhal', at: [6, 8] },
+            2: { to: 'design',   at: [1, 4] }
+        }
+    },
+    {
+        key: 'design',
+        name: 'Designzaal',
+        rows: [
+            '########1######',
+            '#.............#',
+            '#...E.....E...#',
+            '#.............#',
+            '2......#......#',
+            '#.............#',
+            '#...E.....E...#',
+            '#.............#',
+            '#.............#',
+            '###############'
+        ],
+        exits: {
+            1: { to: 'keramiek', at: [8, 8] },
+            2: { to: 'meubels',  at: [13, 4] }
+        }
+    }
+];
+
+// Doorways live well above any exhibit value, so the two can never collide.
+const DOOR_BASE = 100;
+
+function isDoorTile(tileValue) {
+    return tileValue >= DOOR_BASE;
+}
+
+function doorKeyFor(tileValue) {
+    return tileValue - DOOR_BASE;
+}
+
+// Turn the authored text into a numeric grid, handing out exhibit tile values
+// from `nextValue` upwards in reading order.
+function compileRoom(room, nextValue) {
+    const grid = [];
+    const exhibitTiles = [];
+
+    room.rows.forEach(row => {
+        const line = [];
+        for (const character of row) {
+            if (character === '#') {
+                line.push(1);
+            } else if (character === 'E') {
+                line.push(nextValue);
+                exhibitTiles.push(nextValue);
+                nextValue++;
+            } else if (character >= '1' && character <= '9') {
+                line.push(DOOR_BASE + Number(character));
+            } else {
+                line.push(0);
+            }
+        }
+        grid.push(line);
+    });
+
+    room.grid = grid;
+    room.exhibitTiles = exhibitTiles;
+    return nextValue;
+}
+
+// Compile every room up front, so exhibit tile values run 2, 3, 4... across
+// the whole museum rather than restarting in each room. How many exhibits to
+// fetch falls out of the floor plan rather than being repeated as a number.
+let EXHIBIT_SLOTS = 0;
+(function compileAllRooms() {
+    let next = 2;
+    ROOMS.forEach(room => { next = compileRoom(room, next); });
+    EXHIBIT_SLOTS = next - 2;
+})();
+
+function roomIndexByKey(key) {
+    return ROOMS.findIndex(room => room.key === key);
+}
+
+// ==========================================
+// 5. PHASER GAME SCENE
 // ==========================================
 
 class MuseumScene extends Phaser.Scene {
@@ -601,7 +1501,25 @@ class MuseumScene extends Phaser.Scene {
         super('MuseumScene');
     }
 
+    // Register the photographs that DMG.loadPhotos() already fetched. They are
+    // plain HTMLImageElements, so they become textures with no loading step —
+    // which is why there is no preload() here and why a room change later can
+    // never wait on the network.
+    registerPhotos() {
+        Object.keys(MuseumAPI).forEach(id => {
+            const record = MuseumAPI[id];
+            const key = 'photo-' + tileValueFor(id);
+
+            if (record.image && !this.textures.exists(key)) {
+                this.textures.addImage(key, record.image);
+            }
+        });
+    }
+
     create() {
+        // Photographs first — makeExhibitTextures() looks for them by name.
+        this.registerPhotos();
+
         // --- Build every texture before anything tries to use one ---
         makeFloorTexture(this, 'floor-a', PALETTE.marbleA);
         makeFloorTexture(this, 'floor-b', PALETTE.marbleB);
@@ -609,7 +1527,8 @@ class MuseumScene extends Phaser.Scene {
         makeExhibitTextures(this);
         makePlayerTexture(this);
         makeMarkerTextures(this);
-        makeCharmotTexture(this);
+        makeMarlotTexture(this);
+        makeDoorTexture(this);
         makeWarnTexture(this);
 
         // Walk cycles — row order matches the spritesheet built above.
@@ -621,75 +1540,31 @@ class MuseumScene extends Phaser.Scene {
         // Idle frame per facing = the "stand" frame of that row.
         this.idleFrames = { down: 0, left: 4, right: 8, up: 12 };
 
-        // Museum Map Array — 0 floor, 1 wall, 2+ an exhibit from MuseumAPI.
-        // Four plinths, four different pieces.
-        this.mapGrid = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 1],
-            [1, 0, 2, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1],
-            [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 3, 0, 0, 0, 0, 1, 0, 0, 5, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-        ];
-
         this.tileSize = 32;
-        const mapWidthInPixels = this.mapGrid[0].length * this.tileSize;
-        const mapHeightInPixels = this.mapGrid.length * this.tileSize;
+        const mapWidthInPixels = ROOMS[0].grid[0].length * this.tileSize;
+        const mapHeightInPixels = ROOMS[0].grid.length * this.tileSize;
 
-        // --- Draw the map ---
-        this.exhibitSprites = {};   // "x,y" -> sprite, so we can badge them later
-
-        for (let y = 0; y < this.mapGrid.length; y++) {
-            for (let x = 0; x < this.mapGrid[y].length; x++) {
-                const tileType = this.mapGrid[y][x];
-                const posX = x * this.tileSize + (this.tileSize / 2);
-                const posY = y * this.tileSize + (this.tileSize / 2);
-
-                if (tileType === 1) {
-                    this.add.image(posX, posY, 'wall');
-                } else {
-                    // Every non-wall tile gets a floor underneath it, so the
-                    // exhibits sit on marble rather than on nothing.
-                    this.add.image(posX, posY, (x + y) % 2 === 0 ? 'floor-a' : 'floor-b');
-                }
-
-                if (isExhibitTile(tileType)) {
-                    const sprite = this.add.image(posX, posY, 'exhibit-' + tileType);
-                    sprite.setDepth(5);
-                    this.exhibitSprites[x + ',' + y] = sprite;
-                }
-            }
-        }
+        // Every room is the same size, so the viewport never has to change.
+        // The tile layer is rebuilt on each room change; the player, MARLOT
+        // and the hint chevron are made once and carried between rooms.
+        this.roomLayer = this.add.container(0, 0);
+        this.exhibitSprites = {};
+        this.roomIndex = 0;
 
         // --- Player ---
-        this.playerGridX = 2;
-        this.playerGridY = 6;
         this.facing = 'down';
-        this.player = this.add.sprite(
-            this.playerGridX * this.tileSize + (this.tileSize / 2),
-            this.playerGridY * this.tileSize + (this.tileSize / 2),
-            'playerSprite'
-        );
+        this.player = this.add.sprite(0, 0, 'playerSprite');
         this.player.setDepth(10);
         this.player.setFrame(this.idleFrames.down);
 
-        // --- CHARMOT ---
-        // Flood fill from the player's start so she can only ever appear in
-        // the part of the museum the player can actually reach. Doing it once
-        // here makes picking a spawn a filtered random draw instead of
-        // rejection-sampling against walls every time.
-        this.walkableTiles = this.computeReachableTiles(this.playerGridX, this.playerGridY);
-
         // A fixed pool; the difficulty table decides how many are in play.
-        this.charmots = [0, 1, 2].map(i => new Charmot(this, i));
+        this.marlots = [0, 1, 2].map(i => new Marlot(this, i));
+
         this.runElapsed = 0;
         GameState.gameOver = false;
 
         // --- Interaction hint marker ---
+        // Built before the first room, because buildRoom() hides it.
         this.hint = this.add.image(0, 0, 'hint');
         this.hint.setDepth(20);
         this.hint.setVisible(false);
@@ -701,6 +1576,9 @@ class MuseumScene extends Phaser.Scene {
             repeat: -1,
             ease: 'Sine.easeInOut'
         });
+
+        // Draw the opening room and drop the player into it.
+        this.buildRoom(0, [2, 6]);
 
         // --- Controls ---
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -721,6 +1599,10 @@ class MuseumScene extends Phaser.Scene {
         this.cameras.main.setBackgroundColor('#1a1a20');
 
         updateProgressCounter();
+
+        // Textures are built and every room is ready to be drawn from them —
+        // this is the first moment the museum is actually playable.
+        finishLoading();
     }
 
     update(time, delta) {
@@ -741,11 +1623,11 @@ class MuseumScene extends Phaser.Scene {
         // uiIsBlocking() covers game over too, so she freezes on death and
         // while any overlay is up.
         if (!uiIsBlocking()) {
-            this.charmots.forEach((charmot, i) => {
-                if (i < cfg.count) charmot.update(dt, cfg);
-                else if (charmot.isPresent) charmot.retire();
+            this.marlots.forEach((marlot, i) => {
+                if (i < cfg.count) marlot.update(dt, cfg);
+                else if (marlot.isPresent) marlot.retire();
             });
-            this.checkCharmotCollision();
+            this.checkMarlotCollision();
         }
 
         if (uiIsBlocking() || this.isMoving) return;
@@ -765,14 +1647,126 @@ class MuseumScene extends Phaser.Scene {
         // this is what lets you stand still and look at an exhibit.
         this.facing = direction;
 
-        if (this.mapGrid[nextY] && this.mapGrid[nextY][nextX] === 0) {
+        if (this.canEnter(nextX, nextY)) {
             this.movePlayer(nextX, nextY, direction);
         } else {
             this.player.setFrame(this.idleFrames[direction]);
         }
     }
 
-    // --- CHARMOT support ---------------------------------------------
+    // --- Rooms --------------------------------------------------------
+    // Everything expensive — the API fetch, the photo downloads, the pixelated
+    // exhibit textures — happened once before the game started. A room change
+    // only throws away tile sprites and adds new ones from textures that
+    // already exist, so it costs no network and no drawing.
+
+    buildRoom(index, spawn) {
+        const room = ROOMS[index];
+        this.roomIndex = index;
+        this.mapGrid = room.grid.map(row => row.slice());
+
+        // Drop the previous room's tiles. destroy(true) takes the children
+        // with it, which is what stops sprites accumulating room after room.
+        this.roomLayer.removeAll(true);
+        this.exhibitSprites = {};
+
+        for (let y = 0; y < this.mapGrid.length; y++) {
+            for (let x = 0; x < this.mapGrid[y].length; x++) {
+                const tileType = this.mapGrid[y][x];
+                const posX = x * this.tileSize + (this.tileSize / 2);
+                const posY = y * this.tileSize + (this.tileSize / 2);
+
+                if (tileType === 1) {
+                    this.roomLayer.add(this.add.image(posX, posY, 'wall'));
+                } else {
+                    // Every non-wall tile gets marble underneath it, so the
+                    // exhibits and doorways sit on a floor rather than on
+                    // nothing.
+                    this.roomLayer.add(
+                        this.add.image(posX, posY, (x + y) % 2 === 0 ? 'floor-a' : 'floor-b')
+                    );
+                }
+
+                if (isDoorTile(tileType)) {
+                    const door = this.add.image(posX, posY, 'door');
+                    door.setDepth(4);
+                    this.roomLayer.add(door);
+                }
+
+                if (isExhibitTile(tileType)) {
+                    const sprite = this.add.image(posX, posY, 'exhibit-' + tileType);
+                    sprite.setDepth(5);
+                    this.roomLayer.add(sprite);
+                    this.exhibitSprites[x + ',' + y] = sprite;
+
+                    // Anything already in the dex keeps its tick when you come
+                    // back to the room that holds it.
+                    if (GameState.sessionPokedex.has('exhibit_' + tileType)) {
+                        this.roomLayer.add(this.makeBadge(x, y, false));
+                    }
+                }
+            }
+        }
+
+        // Place the player, then work out where MARLOT is allowed to appear.
+        this.playerGridX = spawn[0];
+        this.playerGridY = spawn[1];
+        this.player.setPosition(
+            this.playerGridX * this.tileSize + (this.tileSize / 2),
+            this.playerGridY * this.tileSize + (this.tileSize / 2)
+        );
+        this.player.setFrame(this.idleFrames[this.facing]);
+        this.isMoving = false;
+
+        // Flood fill from the player so she can only ever appear somewhere the
+        // player can actually reach. Once per room, rather than rejection
+        // sampling against walls on every spawn.
+        this.walkableTiles = this.computeReachableTiles(this.playerGridX, this.playerGridY);
+
+        // She does not follow you through a doorway — every room starts clear.
+        this.marlots.forEach(marlot => marlot.retire());
+
+        this.hint.setVisible(false);
+        updateRoomLabel(room);
+    }
+
+    // Step onto a doorway and you are in the next room.
+    useDoor(tileValue) {
+        const exit = ROOMS[this.roomIndex].exits[doorKeyFor(tileValue)];
+        if (!exit) return;
+
+        const target = roomIndexByKey(exit.to);
+        if (target < 0) {
+            console.warn('Museumdex: no room keyed ' + exit.to);
+            return;
+        }
+
+        this.cameras.main.fadeOut(120, 0, 0, 0);
+        this.cameras.main.once('camerafadeoutcomplete', () => {
+            this.buildRoom(target, exit.at);
+            this.cameras.main.fadeIn(160, 0, 0, 0);
+            showToast(ROOMS[target].name);
+        });
+    }
+
+    // A tick over a discovered exhibit. Popped in when it is earned, already
+    // in place when you re-enter the room.
+    makeBadge(x, y, animate) {
+        const badge = this.add.image(
+            x * this.tileSize + this.tileSize - 8,
+            y * this.tileSize + 8,
+            'check'
+        );
+        badge.setDepth(6);
+
+        if (animate) {
+            badge.setScale(0);
+            this.tweens.add({ targets: badge, scale: 1, duration: 250, ease: 'Back.easeOut' });
+        }
+        return badge;
+    }
+
+    // --- MARLOT support ---------------------------------------------
 
     currentThreat() {
         if (GameState.threatOverride !== null) return GameState.threatOverride;
@@ -783,13 +1777,22 @@ class MuseumScene extends Phaser.Scene {
         return Phaser.Math.Clamp(ramp * ramp + GameState.sessionPokedex.size * 0.15, 0, 1);
     }
 
+    // Where MARLOT may stand: plain floor only. Keeping her out of doorways
+    // means she can never block the one tile you need to leave by.
     isWalkable(x, y) {
         return !!this.mapGrid[y] && this.mapGrid[y][x] === 0;
     }
 
-    tileHasCharmot(x, y, except) {
-        return this.charmots.some(c =>
-            c !== except && c.isPresent && c.gridX === x && c.gridY === y);
+    // Where the player may step: floor, or a doorway leading out of the room.
+    canEnter(x, y) {
+        if (!this.mapGrid[y]) return false;
+        const tile = this.mapGrid[y][x];
+        return tile === 0 || isDoorTile(tile);
+    }
+
+    tileHasMarlot(x, y, except) {
+        return this.marlots.some(m =>
+            m !== except && m.isPresent && m.gridX === x && m.gridY === y);
     }
 
     computeReachableTiles(startX, startY) {
@@ -815,15 +1818,15 @@ class MuseumScene extends Phaser.Scene {
     // START of a step, so the player's logical tile is already their
     // destination for the whole 150ms tween — excluding it here is what stops
     // her materialising on a move you had already committed to.
-    pickSpawnTile(cfg, forCharmot) {
+    pickSpawnTile(cfg, forMarlot) {
         const px = this.playerGridX;
         const py = this.playerGridY;
 
         const candidates = this.walkableTiles.filter(t => {
             if (t.x === px && t.y === py) return false;
-            if (this.tileHasCharmot(t.x, t.y, forCharmot)) return false;
+            if (this.tileHasMarlot(t.x, t.y, forMarlot)) return false;
             if (Math.abs(t.x - px) + Math.abs(t.y - py) < cfg.minDistance) return false;
-            return this.playerKeepsAnEscape(t.x, t.y, forCharmot);
+            return this.playerKeepsAnEscape(t.x, t.y, forMarlot);
         });
 
         return candidates.length ? Phaser.Utils.Array.GetRandom(candidates) : null;
@@ -838,17 +1841,17 @@ class MuseumScene extends Phaser.Scene {
             const nx = px + dx, ny = py + dy;
             if (!this.isWalkable(nx, ny)) return false;
             if (nx === spawnX && ny === spawnY) return false;
-            return !this.tileHasCharmot(nx, ny, ignore);
+            return !this.tileHasMarlot(nx, ny, ignore);
         });
     }
 
-    checkCharmotCollision() {
+    checkMarlotCollision() {
         if (GameState.gameOver) return;
 
-        const hit = this.charmots.find(c =>
-            c.isLethal && c.gridX === this.playerGridX && c.gridY === this.playerGridY);
+        const caught = this.marlots.find(m =>
+            m.isLethal && m.gridX === this.playerGridX && m.gridY === this.playerGridY);
 
-        if (hit) this.failRun();
+        if (caught) this.failRun();
     }
 
     failRun() {
@@ -926,6 +1929,11 @@ class MuseumScene extends Phaser.Scene {
                 this.player.anims.stop();
                 // Settle on the idle pose for whichever way we ended up facing.
                 this.player.setFrame(this.idleFrames[this.facing]);
+
+                // The doorway fires on arrival rather than on the keypress, so
+                // you see yourself step into it before the room changes.
+                const landed = this.mapGrid[newY] && this.mapGrid[newY][newX];
+                if (isDoorTile(landed)) this.useDoor(landed);
             }
         });
     }
@@ -962,27 +1970,20 @@ class MuseumScene extends Phaser.Scene {
         if (isNew) {
             this.badgeExhibits(target.tile);
             updateProgressCounter();
-            showToast('NEW! Registered to the Museumdex');
+            showToast('NIEUW! Opgenomen in je Museumdex');
         }
 
-        openDialogue(exhibitData.name, exhibitData.description, isNew);
+        openDialogue(exhibitData.name, trimForDialogue(exhibitData.description), isNew);
     }
 
-    // Stamp a tick on every tile showing this exhibit, not just the one
-    // that happened to be read.
+    // Stamp a tick on every tile showing this exhibit, not just the one that
+    // happened to be read. The badge joins the room layer so it is cleared
+    // along with the rest of the room, then redrawn from the dex on return.
     badgeExhibits(tileType) {
         for (const key in this.exhibitSprites) {
             const [x, y] = key.split(',').map(Number);
             if (this.mapGrid[y][x] !== tileType) continue;
-
-            const badge = this.add.image(
-                x * this.tileSize + this.tileSize - 8,
-                y * this.tileSize + 8,
-                'check'
-            );
-            badge.setDepth(6);
-            badge.setScale(0);
-            this.tweens.add({ targets: badge, scale: 1, duration: 250, ease: 'Back.easeOut' });
+            this.roomLayer.add(this.makeBadge(x, y, true));
         }
     }
 }
@@ -1023,6 +2024,27 @@ function finishTyping() {
     document.getElementById('dialogue-hint').style.visibility = 'visible';
 }
 
+// The catalogue writes for a wall label, not a dialogue box — descriptions run
+// to several hundred characters, which is a long typewriter wait for a SPACE
+// press. Cut at the last sentence that fits and point the reader at the dex,
+// which shows the text in full.
+const DIALOGUE_LIMIT = 220;
+
+function trimForDialogue(text) {
+    if (!text) return 'Bij dit object is geen beschrijving bewaard.';
+    if (text.length <= DIALOGUE_LIMIT) return text;
+
+    const head = text.slice(0, DIALOGUE_LIMIT);
+    const lastStop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '));
+
+    // Only break on a sentence if one lands somewhere near the end; otherwise
+    // a single long opening sentence would be cut to almost nothing.
+    if (lastStop > DIALOGUE_LIMIT * 0.5) {
+        return head.slice(0, lastStop + 1) + '  [P voor het hele verhaal]';
+    }
+    return head.replace(/\s+\S*$/, '') + '\u2026  [P voor het hele verhaal]';
+}
+
 function openDialogue(title, description, isNew) {
     document.getElementById('exhibit-title').innerText = title;
     document.getElementById('dialogue-new').style.display = isNew ? 'inline-block' : 'none';
@@ -1040,7 +2062,8 @@ function closeDialogue() {
 function updateProgressCounter() {
     const found = GameState.sessionPokedex.size;
     document.getElementById('progress-counter').innerText = found + '/' + TOTAL_EXHIBITS;
-    document.getElementById('dex-count').innerText = found + ' of ' + TOTAL_EXHIBITS + ' discovered';
+    document.getElementById('dex-count').innerText =
+        found + ' van ' + TOTAL_EXHIBITS + ' objecten gevonden';
 }
 
 let toastTimer = null;
@@ -1071,31 +2094,118 @@ function togglePokedex() {
     updateProgressCounter();
 
     dexList.innerHTML = '';
-    let index = 0;
 
-    for (const key in MuseumAPI) {
-        index++;
-        const entry = MuseumAPI[key];
-        const item = document.createElement('div');
-        const found = GameState.sessionPokedex.has(key);
+    // Grouped by wing, in the order you would walk them, so the dex doubles as
+    // a map of what is still left to find.
+    ROOMS.forEach(room => {
+        const found = room.exhibitTiles.filter(
+            tile => GameState.sessionPokedex.has('exhibit_' + tile)
+        ).length;
 
-        item.className = 'dex-item' + (found ? '' : ' locked');
-        const number = String(index).padStart(3, '0');
+        const heading = document.createElement('div');
+        heading.className = 'dex-room';
+        heading.innerHTML =
+            '<span>' + escapeHtml(room.name) + '</span>' +
+            '<b>' + found + '/' + room.exhibitTiles.length + '</b>';
+        dexList.appendChild(heading);
 
-        if (found) {
-            item.innerHTML =
-                '<div class="dex-num">No. ' + number + '</div>' +
-                '<div class="dex-name">' + entry.name + '</div>' +
-                '<div class="dex-desc">' + entry.description + '</div>';
-        } else {
-            item.innerHTML =
-                '<div class="dex-num">No. ' + number + '</div>' +
-                '<div class="dex-name">???</div>' +
-                '<div class="dex-desc">Not yet found. Explore the museum and press SPACE at an exhibit.</div>';
-        }
+        room.exhibitTiles.forEach(tile => {
+            const key = 'exhibit_' + tile;
+            const entry = MuseumAPI[key];
+            if (!entry) return;
 
-        dexList.appendChild(item);
+            // Numbered across the whole museum rather than per room, so an
+            // entry's number does not move when a wing fills up.
+            const number = String(tile - 1).padStart(3, '0');
+            const item = document.createElement('div');
+            const isFound = GameState.sessionPokedex.has(key);
+            item.className = 'dex-item' + (isFound ? '' : ' locked');
+
+            if (isFound) {
+                item.innerHTML =
+                    '<div class="dex-num">Nr. ' + number +
+                        (entry.pid ? ' &middot; ' + escapeHtml(entry.pid) : '') + '</div>' +
+                    '<div class="dex-body">' +
+                        (entry.photo
+                            ? '<img class="dex-photo" src="' + encodeURI(entry.photo) + '" alt="" loading="lazy">'
+                            : '') +
+                        '<div class="dex-text">' +
+                            '<div class="dex-name">' + escapeHtml(entry.name) + '</div>' +
+                            factsHtml(entry) +
+                            '<div class="dex-desc">' + escapeHtml(entry.description) + '</div>' +
+                            creditHtml(entry) +
+                        '</div>' +
+                    '</div>';
+            } else {
+                item.innerHTML =
+                    '<div class="dex-num">Nr. ' + number + '</div>' +
+                    '<div class="dex-name">???</div>' +
+                    '<div class="dex-desc">Nog niet gevonden. Ga naar de ' +
+                        escapeHtml(room.name).toLowerCase() +
+                        ' en druk op SPATIE bij een sokkel.</div>';
+            }
+
+            dexList.appendChild(item);
+        });
+    });
+}
+
+// ------------------------------------------
+// Dex entry rendering
+// ------------------------------------------
+// Everything below builds HTML out of text that came off the network, so it
+// all goes through escapeHtml() first — a catalogue label is free to contain
+// an ampersand or an angle bracket.
+
+function escapeHtml(value) {
+    return String(value === null || value === undefined ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// Only the fields this particular object actually has — coverage across ten
+// thousand catalogue records is uneven, and empty rows read as broken.
+function factsHtml(entry) {
+    const rows = [];
+    const add = (label, value) => {
+        if (value) rows.push('<span>' + label + '</span><b>' + escapeHtml(value) + '</b>');
+    };
+
+    add('Maker', entry.maker);
+    add('Gemaakt in', entry.place);
+    add('Type', (entry.types || []).join(', '));
+    add('Materiaal', (entry.materials || []).join(', '));
+    add('Techniek', (entry.techniques || []).join(', '));
+    add('Afmetingen', formatDimensions(entry.dimensions));
+    add('Verworven', entry.acquiredHow && entry.acquired
+        ? entry.acquiredHow + ', ' + entry.acquired
+        : entry.acquired);
+
+    return rows.length ? '<div class="dex-facts">' + rows.join('') + '</div>' : '';
+}
+
+// "h 11.8 x b 4.5 x d 10 cm" — the axis names are Dutch (hoogte, breedte,
+// diepte), and their initials happen to be exactly the right abbreviation.
+function formatDimensions(dimensions) {
+    if (!dimensions || !dimensions.length) return null;
+
+    const unit = dimensions[0].unit;
+    const parts = dimensions.map(d => d.axis.charAt(0) + ' ' + d.value);
+    return parts.join(' \u00d7 ') + (unit ? ' ' + unit : '');
+}
+
+// The museum publishes photographer and rightsholder per image; showing them
+// is the least the API's terms deserve.
+function creditHtml(entry) {
+    const bits = [];
+    if (entry.credit) bits.push(escapeHtml(entry.credit));
+    if (entry.url) {
+        bits.push('<a href="' + encodeURI(entry.url) + '" target="_blank" rel="noopener">collectieregistratie</a>');
     }
+    return bits.length ? '<div class="dex-credit">' + bits.join(' &middot; ') + '</div>' : '';
 }
 
 // ------------------------------------------
@@ -1121,7 +2231,7 @@ function updateDangerMeter(threat) {
 
     const auto = document.getElementById('threat-auto');
     const isAuto = GameState.threatOverride === null;
-    auto.innerText = isAuto ? 'AUTO' : 'MANUAL';
+    auto.innerText = isAuto ? 'AUTO' : 'MANUEEL';
     auto.classList.toggle('manual', !isAuto);
 }
 
@@ -1161,6 +2271,7 @@ function formatTime(ms) {
 
 function showGameOver(stats) {
     document.getElementById('go-found').innerText = stats.found + '/' + TOTAL_EXHIBITS;
+    document.getElementById('go-name').innerText = GameState.playerName;
     document.getElementById('go-time').innerText = formatTime(stats.ms);
     document.getElementById('go-threat').innerText = Math.round(stats.threat * 100) + '%';
     document.getElementById('gameover-screen').style.display = 'flex';
@@ -1205,6 +2316,130 @@ const config = {
     scene: [MuseumScene]
 };
 
-const game = new Phaser.Game(config);
+// Assigned by startGame(); restartRun() reaches through it to restart the scene.
+let game = null;
 
-initDangerControls();
+// ------------------------------------------
+// Loading
+// ------------------------------------------
+// Two phases, one bar. The collection fetch runs before Phaser exists, then
+// Phaser downloads the photographs. Both are done before the museum is drawn,
+// so walking between rooms afterwards never waits on anything.
+
+const LOAD_FETCH_SHARE = 0.55;   // how much of the bar the API fetch owns
+
+function setLoadProgress(fraction, message) {
+    const bar = document.getElementById('boot-bar');
+    const status = document.getElementById('boot-status');
+
+    if (bar) bar.style.width = Math.round(Phaser.Math.Clamp(fraction, 0, 1) * 100) + '%';
+    if (status && message) status.innerText = message;
+}
+
+// The museum is drawn and playable: clear the load screen and greet the player.
+// create() runs again on every retry, so this only fires the first time.
+let hasFinishedLoading = false;
+
+function finishLoading() {
+    if (hasFinishedLoading) return;
+    hasFinishedLoading = true;
+
+    setLoadProgress(1, 'Klaar');
+
+    const screen = document.getElementById('boot-screen');
+    if (screen) screen.style.display = 'none';
+
+    showToast('Welkom, ' + GameState.playerName + '!');
+}
+
+// The wing you are standing in, shown in the HUD.
+function updateRoomLabel(room) {
+    const label = document.getElementById('room-label');
+    if (label) label.innerText = room.name;
+}
+
+// Called by the START button once a name has been entered.
+async function startGame() {
+    const nameField = document.getElementById('player-name');
+    const typed = nameField ? nameField.value.trim() : '';
+    GameState.playerName = typed || 'Bezoeker';
+
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('boot-screen').style.display = 'flex';
+    setLoadProgress(0, 'Verbinden met Design Museum Gent\u2026');
+
+    let records = [];
+    try {
+        records = await DMG.randomExhibits(EXHIBIT_SLOTS, (fraction, message) => {
+            setLoadProgress(fraction * LOAD_FETCH_SHARE, message);
+        });
+    } catch (error) {
+        console.warn('Museumdex: collectie-API onbereikbaar —', error.message);
+    }
+
+    // Short of a full museum, pad rather than leave plinths that cannot be
+    // inspected. The demo pieces repeat if there are more gaps than fallbacks.
+    const fromApi = records.length;
+    while (records.length < EXHIBIT_SLOTS) {
+        records.push(FALLBACK_EXHIBITS[records.length % FALLBACK_EXHIBITS.length]);
+    }
+
+    installExhibits(records);
+    updateProgressCounter();
+
+    // Every photograph for every room, before the game starts.
+    setLoadProgress(LOAD_FETCH_SHARE, 'Foto\u2019s van de objecten laden\u2026');
+    const photosLoaded = await DMG.loadPhotos(records, (fraction, message) => {
+        setLoadProgress(LOAD_FETCH_SHARE + fraction * (1 - LOAD_FETCH_SHARE), message);
+    });
+    console.log('Museumdex: ' + photosLoaded + ' foto\u2019s geladen van ' + records.length + ' objecten');
+    updateSourceNote(fromApi, records.length, photosLoaded);
+
+    game = new Phaser.Game(config);
+    initDangerControls();
+}
+
+// Says where this run's exhibits came from, under the game window. The data and
+// the photographs come from two different services that fail independently, so
+// they are reported separately rather than as one number.
+function updateSourceNote(fromApi, total, photos) {
+    const note = document.getElementById('source-note');
+    if (!note) return;
+
+    if (!fromApi) {
+        note.innerHTML = 'De collectie van het museum is momenteel onbereikbaar \u2014 je speelt met offline demo-objecten.';
+        return;
+    }
+
+    const link = '<a href="https://data.designmuseumgent.be/v2" target="_blank" rel="noopener">' +
+                 'collectie van Design Museum Gent</a>';
+    // "1 van de 16 objecten komt" — reachable if most detail requests fail.
+    let text = fromApi === 1
+        ? '1 van de ' + total + ' objecten komt live uit de ' + link + '.'
+        : fromApi + ' van de ' + total + ' objecten komen live uit de ' + link + '.';
+
+    if (photos === 0) {
+        text += ' De fotoservice van het museum is momenteel onbereikbaar, ' +
+                'dus de objecten worden getekend \u2014 de teksten zijn wel echt.';
+    } else if (photos < fromApi) {
+        text += ' Van ' + photos + ' ervan is een foto geladen; de rest wordt getekend.';
+    }
+
+    note.innerHTML = text + ' Herlaad de pagina voor een nieuwe selectie.';
+}
+
+// The name field should not need a mouse.
+function initStartScreen() {
+    const field = document.getElementById('player-name');
+    const button = document.getElementById('start-button');
+
+    if (button) button.addEventListener('click', startGame);
+    if (field) {
+        field.addEventListener('keydown', event => {
+            if (event.key === 'Enter') startGame();
+        });
+        field.focus();
+    }
+}
+
+initStartScreen();
