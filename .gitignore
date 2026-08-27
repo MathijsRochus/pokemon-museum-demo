@@ -4,6 +4,9 @@
 # Local backups kept while the art was being rewritten — not part of the game
 *.bak
 
-# Leftover source images from before the artwork became procedural.
-# Nothing in the game loads these; game.js draws every texture at runtime.
-assets/
+# Leftover source images from before the artwork became procedural — floor.png
+# and player.png are unused, since game.js draws every texture at runtime. The
+# museum's pixel logo is the exception: the loading and end screens load it, so
+# it has to ship.
+assets/*
+!assets/Pixel-Logo-41-frames-transparent.gif
