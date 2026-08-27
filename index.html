@@ -8,6 +8,12 @@
     <!-- Load Phaser 3 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
 
+    <!-- The string table is fetched by boot.js, which cannot run until every
+         script above it has parsed — measured on Pages, that put the request at
+         447ms when the scripts finished at 446ms, making it purely serial. The
+         preload starts it alongside them instead. -->
+    <link rel="preload" href="content/nl.json?v=8" as="fetch" crossorigin="anonymous">
+
     <!-- Retro display face, with a monospace fallback if it doesn't load -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -891,36 +897,36 @@
          each file with cache-control: max-age=600, so without it a returning
          visitor inside that window can get a mix of old and new files — worse
          than one stale file, because the halves disagree. Bump them together
-         on release:  sed -i '' 's/?v=7/?v=8/g' index.html -->
+         on release:  sed -i '' 's/?v=8/?v=8/g' index.html -->
 
-    <script src="src/util.js?v=7"></script>
-    <script src="src/i18n.js?v=7"></script>
-    <script src="src/api.js?v=7"></script>
-    <script src="src/state.js?v=7"></script>
+    <script src="src/util.js?v=8"></script>
+    <script src="src/i18n.js?v=8"></script>
+    <script src="src/api.js?v=8"></script>
+    <script src="src/state.js?v=8"></script>
 
-    <script src="src/art/palette.js?v=7"></script>
-    <script src="src/art/core.js?v=7"></script>
-    <script src="src/art/categories/index.js?v=7"></script>
-    <script src="src/art/categories/textile.js?v=7"></script>
-    <script src="src/art/categories/tile.js?v=7"></script>
-    <script src="src/art/categories/furniture.js?v=7"></script>
-    <script src="src/art/categories/vessel.js?v=7"></script>
-    <script src="src/art/categories/device.js?v=7"></script>
-    <script src="src/art/categories/unknown.js?v=7"></script>
-    <script src="src/art/categories/demo.js?v=7"></script>
-    <script src="src/art/characters.js?v=7"></script>
-    <script src="src/art/markers.js?v=7"></script>
+    <script src="src/art/palette.js?v=8"></script>
+    <script src="src/art/core.js?v=8"></script>
+    <script src="src/art/categories/index.js?v=8"></script>
+    <script src="src/art/categories/textile.js?v=8"></script>
+    <script src="src/art/categories/tile.js?v=8"></script>
+    <script src="src/art/categories/furniture.js?v=8"></script>
+    <script src="src/art/categories/vessel.js?v=8"></script>
+    <script src="src/art/categories/device.js?v=8"></script>
+    <script src="src/art/categories/unknown.js?v=8"></script>
+    <script src="src/art/categories/demo.js?v=8"></script>
+    <script src="src/art/characters.js?v=8"></script>
+    <script src="src/art/markers.js?v=8"></script>
 
-    <script src="src/rooms.js?v=7"></script>
-    <script src="src/marlot.js?v=7"></script>
-    <script src="src/scene.js?v=7"></script>
+    <script src="src/rooms.js?v=8"></script>
+    <script src="src/marlot.js?v=8"></script>
+    <script src="src/scene.js?v=8"></script>
 
-    <script src="src/ui/hud.js?v=7"></script>
-    <script src="src/ui/dialogue.js?v=7"></script>
-    <script src="src/ui/dex.js?v=7"></script>
-    <script src="src/ui/gallery.js?v=7"></script>
-    <script src="src/ui/export.js?v=7"></script>
+    <script src="src/ui/hud.js?v=8"></script>
+    <script src="src/ui/dialogue.js?v=8"></script>
+    <script src="src/ui/dex.js?v=8"></script>
+    <script src="src/ui/gallery.js?v=8"></script>
+    <script src="src/ui/export.js?v=8"></script>
 
-    <script src="src/boot.js?v=7"></script>
+    <script src="src/boot.js?v=8"></script>
 </body>
 </html>

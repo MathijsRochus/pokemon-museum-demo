@@ -14,6 +14,10 @@ const I18n = {
     lang: 'nl',
     strings: {},
 
+    // Kept in step with the ?v= on the script tags and the preload hint in
+    // index.html; see the comment beside the scripts there.
+    VERSION: 8,
+
     // Which language to load. A ?lang= in the url wins, so a translation can be
     // tried without touching anything.
     requestedLang() {
@@ -29,7 +33,10 @@ const I18n = {
         // than a Dutch interface.
         for (const lang of [wanted, 'nl']) {
             try {
-                const response = await fetch('content/' + lang + '.json', { cache: 'no-cache' });
+                // The url carries the same ?v= as the preload hint in
+                // index.html, or the browser treats them as two resources and
+                // fetches twice. I18n.VERSION is bumped with the script tags.
+                const response = await fetch('content/' + lang + '.json?v=' + I18n.VERSION);
                 if (!response.ok) throw new Error('HTTP ' + response.status);
 
                 const table = await response.json();
