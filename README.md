@@ -35,9 +35,11 @@ anything you can interact with. Step into a doorway to change wing.
 
 ## Running it locally
 
-There is no build step and nothing to install, but it does need to be served —
-the collection photographs are read pixel-by-pixel into canvas textures, which
-browsers refuse to do on `file://`.
+There is no build step and nothing to install, but it **must be served** —
+opening `index.html` by double-clicking it will not work. The copy lives in
+`content/nl.json` and browsers refuse to `fetch` a local file from a `file://`
+page, so the game stops and tells you to serve it instead of coming up half
+rendered.
 
 ```sh
 python3 -m http.server 8000
@@ -46,6 +48,16 @@ python3 -m http.server 8000
 Then open `http://localhost:8000`. Phaser comes from a CDN and the museum data
 comes over the network, so the first load needs an internet connection. Without
 one the game still starts, on four hand-drawn demo pieces.
+
+To check your changes:
+
+```sh
+node tests/run.mjs
+```
+
+No dependencies — it uses the node that is already on your machine. Run it after
+editing `content/nl.json` in particular: it fails if the code asks for a string
+that is not there, or if a string is there that nothing uses.
 
 ## The collection API
 
@@ -122,6 +134,117 @@ game is in Dutch: there is no second language to switch to. (Concept records —
 object types and materials — *do* carry English `skos:prefLabel`s, if a
 bilingual mode is ever wanted.)
 
+## Where things live
+
+No build step and no bundler: plain files, served as they are.
+
+```
+index.html              markup and styling only — no copy, no game logic
+content/
+  nl.json               every word the player reads
+src/
+  util.js               escapeHtml, formatTime, lerp — shared, pure
+  i18n.js               loads content/<lang>.json, provides t()
+  api.js                the collection client: fetch, retry, pool, rarity
+  state.js              GameState, the exhibits in play, the demo pieces
+  rooms.js              the four wings, authored as text maps
+  marlot.js             difficulty curve and MARLOT's four-state cycle
+  scene.js              the Phaser scene: tiles, movement, doorways
+  boot.js               loads the strings, stocks the museum, starts Phaser
+  art/
+    palette.js          every colour in the game
+    core.js             px(), makeTexture(), floor, wall, plinth
+    characters.js       the player's walk cycle and MARLOT
+    markers.js          doorways, chevron, tick, rarity gems, autofocus frame
+    categories/
+      index.js          the registry and the classifier
+      textile.js        one file per category: keywords + drawing together
+      tile.js
+      furniture.js
+      vessel.js
+      device.js
+      unknown.js        the dust sheet, for objects with no describable shape
+      demo.js           the four offline pieces
+  ui/
+    hud.js              counters, toast, the difficulty slider
+    dialogue.js         the exhibit dialogue box
+    dex.js              the Museumdex overlay
+    gallery.js          the end-of-run gallery
+    export.js           the live catalogue download
+tests/
+  run.mjs               node tests/run.mjs — runs everything
+  structure_test.mjs    layout, script order, and that every string resolves
+  api_test.mjs          client, classifier, rarity, pool, floor plan
+```
+
+### Changing the copy
+
+Everything the player reads is in `content/nl.json`, keyed by where it appears:
+
+```json
+"start.button": "Naar binnen",
+"discovery.rare": "{tier}! Slechts {count} in de hele collectie",
+```
+
+`index.html` carries no text of its own — elements are marked `data-i18n="key"`
+and filled at load. `data-i18n-html` is for the two strings that contain their
+own `<b>` markup, and `{name}`-style slots are filled by `t()`.
+
+Nothing in there is object data. Titles, descriptions, makers and materials come
+from the museum in Dutch, and translating the catalogue is not the game's job.
+
+After editing, run `node tests/run.mjs`: it fails if a key the code asks for is
+missing, or if a string in the file is no longer used by anything.
+
+### Adding a language
+
+Copy `content/nl.json` to `content/en.json`, translate the values, and open
+`?lang=en`. Nothing else changes — a missing file or a missing key falls back to
+Dutch, which is deliberate: a half-translated interface over Dutch object
+descriptions is worse than a Dutch one.
+
+### Adding a category
+
+One file in `src/art/categories/`, which owns both halves of the decision:
+
+```js
+function drawLamp(px) { /* ... */ }
+
+registerCategory({ key: 'lamp', keywords: ['lamp', 'luchter'], draw: drawLamp });
+```
+
+Then a `<script>` tag in `index.html`. **Order matters**: the first category
+whose keywords match wins, so narrower categories go first — `textile` before
+`furniture`, because a `tafellaken` is cloth, not a table. `device` is last
+because it is the broadest.
+
+## Performance
+
+GitHub Pages serves static files over HTTP/2 with gzip, and there is no
+bundler, so the structure above costs requests. Measured rather than assumed:
+
+| | before | after |
+|---|---|---|
+| files the page fetches | 2 | 27 |
+| gzipped | 39.7 KB | 49.6 KB |
+| cold time to a usable start screen | ~420 ms | ~210 ms |
+
+Splitting costs **+9.9 KB gzipped (+25%)**, because each file is compressed
+against its own dictionary instead of sharing one. It does not cost time: the
+scripts are classic tags, not modules, so the browser's preload scanner finds
+all of them in the initial HTML and fetches them in parallel on one connection,
+rather than discovering each `import` one round trip at a time. Cold loads came
+out *faster* after the split, which is within noise either way.
+
+None of this is the bottleneck. The museum API moves ~110 KB and takes 2–3
+seconds to answer, an order of magnitude more than the code. The single largest
+asset is the 230 KB logo GIF — six times all the JavaScript put together.
+
+If load time ever does matter, the fix is `cat` and a version bump, not a
+toolchain: concatenating `src/` in script order into one file recovers the
+9.9 KB and 25 requests, and the only thing that changes in `index.html` is the
+list of tags.
+
 ## How it works
 
 **Almost every pixel is generated at runtime.** The marble, the walls, the
@@ -185,18 +308,56 @@ she waits rather than forcing a spawn.
 
 ## Changing the museum
 
-**A different floor plan:** edit `ROOMS`. Add or move an `E` and the fetch count,
-the textures, the dialogue, the badges, the dex grouping and the progress counter
-all follow — the only rules are that every plinth needs a walkable tile directly
-below it and every doorway needs a matching entry in that room's `exits`.
+**A different floor plan:** `src/rooms.js`. Add or move an `E` and the fetch
+count, the textures, the dialogue, the badges, the dex grouping and the progress
+counter all follow — the only rules are that every plinth needs a walkable tile
+directly below it and every doorway needs a matching entry in that room's
+`exits`. Wing names are keys into `content/nl.json`.
 
-**More or fewer objects per wing:** same thing. `EXHIBIT_SLOTS` is counted off
+**More or fewer objects per wing:** same file. `EXHIBIT_SLOTS` is counted off
 the compiled rooms, so nothing else needs touching.
 
-**A different category stand-in:** add a bucket to `DMG.CATEGORIES` and a
-matching drawing to `PROCEDURAL_ART`. The classifier reports which types fall
-through — run the type index past `fallbackArtFor()` to see what a new bucket
-would be worth before drawing anything.
+**A colour:** `src/art/palette.js`. Everything draws from there.
+
+**A category or its keywords:** one file in `src/art/categories/`. See *Adding a
+category* above for the ordering rule.
+
+**Difficulty:** `difficultyFor()` in `src/marlot.js` maps a single `0..1` scalar
+onto every parameter.
 
 **Retrying keeps the same museum** and returns you to the Inkomhal; reload the
 page for a new set of objects.
+
+## Next steps
+
+**MCP servers over the collection.** Wrapping the API in an MCP server would let
+an assistant answer questions against the live collection — "which designers
+appear in more than one wing", "find me the rarest object made in Ghent" — and
+would make the mechanics below easier to prototype than they are in game code.
+
+**The mechanics the API can support but the game does not use yet.** All
+measured against the live API:
+
+| mechanic | what it needs | size |
+|---|---|---|
+| objects really on display | `?onDisplay=true` | 353 objects |
+| definition quiz | `skos:scopeNote` + `broader`/`narrower` | 5,800 concepts |
+| designer hunt | `?agent=` and the Dutch biographies | 4,268 agents, 719 with a bio |
+| era wings | `dateFrom` / `dateTo` | 982 / 1,192 / 1,743 / 736 / 265 by era |
+| restaging an exhibition | `crm:P16_used_specific_object` | 550, the largest with 97 objects |
+
+**Endpoints that are documented but broken**, so nothing should be built on them
+until they come back:
+
+- `searchQuery` is ignored — any term, including nonsense, returns all 9,879
+  objects. There is no working full-text search.
+- `/id/roles` is `404`, so the `role` filter on agents has no discoverable values.
+- All colour data is empty: `hasColors=true` returns 0, the colour index is
+  bare, `/colors/dominant` returns nothing. This was working earlier — 12 base
+  colours and 599 CSS colours with per-object dominance — so it is an outage
+  rather than a removal.
+- The image host is mid-migration. `image` now points at
+  `beeldbank-temp.stad.gent`, which answers `403` to everything including its
+  own `info.json`; the IIIF manifest is the only route that still works, and it
+  answers ~29% of the time with a 17-second median. This is why the plinths draw
+  their objects and only the end gallery attempts a photograph.

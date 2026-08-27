@@ -649,7 +649,9 @@
         #start-screen {
             position: absolute;
             inset: 0;
-            display: flex;
+            /* Revealed by boot.js once the strings are loaded — the markup has
+               no copy of its own, so showing it earlier flashes empty boxes. */
+            display: none;
             flex-direction: column;
             justify-content: center;
             align-items: center;
@@ -734,6 +736,42 @@
 
         #source-note a { color: #9aa6d2; }
 
+        /* Shown only when content/<lang>.json could not be read — see
+           I18n.showLoadFailure(). Styled inline-ish because at that point no
+           copy has loaded and the page has nothing else to say. */
+        #strings-failed {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            padding: 32px;
+            background: #16161e;
+            color: #cfcadb;
+            text-align: center;
+            z-index: 100;
+            font-size: 10px;
+            line-height: 2;
+        }
+
+        #strings-failed h2 { font-size: 14px; color: var(--gold); margin: 0; }
+        #strings-failed p { margin: 0; max-width: 460px; }
+        #strings-failed code { color: var(--gold); }
+
+        #strings-failed pre {
+            margin: 0;
+            padding: 12px 16px;
+            background: #23232e;
+            border: 2px solid #45455a;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 10px;
+        }
+
+        #strings-failed .en { color: #7d7790; font-size: 8px; margin-top: 8px; }
+
         #controls {
             font-size: 9px;
             color: #7a7590;
@@ -745,55 +783,53 @@
 </head>
 <body>
 
-    <h1>Museumdex</h1>
+    <h1 data-i18n="page.title">Museumdex</h1>
 
     <div id="game-container">
         <div id="hud">
             <div class="hud-row">
                 <span class="dot">&#9679;</span>
-                <span id="room-label">Inkomhal</span>
+                <span id="room-label"></span>
                 <span id="progress-counter">0/0</span>
             </div>
             <div class="hud-row" id="danger">
-                <span class="danger-label">MOEILIJKHEID</span>
+                <span class="danger-label" data-i18n="hud.difficulty"></span>
                 <input type="range" id="threat-slider" min="0" max="100" value="0" tabindex="-1">
                 <span id="threat-label">0%</span>
-                <button id="threat-auto">AUTO</button>
+                <button id="threat-auto" data-i18n="hud.auto"></button>
             </div>
         </div>
 
-        <button id="pokedex-btn" onclick="togglePokedex()">Museumdex</button>
+        <button id="pokedex-btn" onclick="togglePokedex()" data-i18n="hud.dexButton"></button>
 
         <div id="toast"></div>
 
         <div id="dialogue-box">
             <div id="dialogue-head">
-                <h3 id="exhibit-title">Titel</h3>
-                <span id="dialogue-new">NIEUW</span>
+                <h3 id="exhibit-title"></h3>
+                <span id="dialogue-new" data-i18n="dialogue.new"></span>
             </div>
-            <p id="exhibit-desc">Beschrijving…</p>
-            <div id="dialogue-hint">Druk op SPATIE</div>
+            <p id="exhibit-desc"></p>
+            <div id="dialogue-hint" data-i18n="dialogue.hint"></div>
         </div>
 
         <div id="gameover-screen">
             <div class="go-panel">
                 <div class="logo-plate">
                     <img src="assets/Pixel-Logo-41-frames-transparent.gif"
-                         alt="Design Museum Gent">
+                         data-i18n-alt="page.logoAlt" alt="">
                 </div>
-                <div class="go-title">KLIK!</div>
-                <div class="go-sub">MARLOT heeft haar foto, <b id="go-name">Bezoeker</b>.
-                    Morgen sta je op de affiche.</div>
+                <div class="go-title" data-i18n="end.title"></div>
+                <div class="go-sub" id="go-sub"></div>
                 <div class="go-stats">
-                    <span>Objecten gevonden</span><b id="go-found">0/0</b>
-                    <span>Onopgemerkt gebleven</span><b id="go-time">0:00</b>
-                    <span>Moeilijkheid bij de klik</span><b id="go-threat">0%</b>
+                    <span data-i18n="end.statFound"></span><b id="go-found">0/0</b>
+                    <span data-i18n="end.statTime"></span><b id="go-time">0:00</b>
+                    <span data-i18n="end.statThreat"></span><b id="go-threat">0%</b>
                 </div>
-                <button id="go-retry" onclick="restartRun()">Opnieuw naar binnen</button>
+                <button id="go-retry" onclick="restartRun()" data-i18n="end.retry"></button>
 
-                <div id="go-gallery-title">Wat je gezien hebt</div>
-                <div id="go-gallery-empty">Je bent MARLOT tegengekomen voor je
-                    iets kon bekijken. Volgende keer eerst naar een sokkel.</div>
+                <div id="go-gallery-title" data-i18n="end.galleryTitle"></div>
+                <div id="go-gallery-empty" data-i18n="end.galleryEmpty"></div>
                 <div id="go-gallery"></div>
             </div>
         </div>
@@ -801,61 +837,90 @@
         <div id="boot-screen">
             <div class="logo-plate">
                 <img src="assets/Pixel-Logo-41-frames-transparent.gif"
-                     alt="Design Museum Gent">
+                     data-i18n-alt="page.logoAlt" alt="">
             </div>
-            <div id="boot-title">HET MUSEUM WORDT INGERICHT</div>
+            <div id="boot-title" data-i18n="loading.title"></div>
             <div id="boot-track"><div id="boot-bar"></div></div>
-            <div id="boot-status">Verbinden met Design Museum Gent&hellip;</div>
-            <div id="boot-note">Alle vier de zalen worden nu klaargezet, zodat je
-                daarna zonder wachten kan rondwandelen.</div>
+            <div id="boot-status"></div>
+            <div id="boot-note" data-i18n="loading.note"></div>
         </div>
 
         <div id="start-screen">
-            <div id="start-title">MUSEUMDEX</div>
-            <div id="start-sub">
-                Je wandelt door Design Museum Gent en neemt elk stuk dat je
-                bekijkt op in je Museumdex. Let op <b>MARLOT</b> van het
-                communicatieteam: zij zoekt bezoekers voor de campagnebeelden,
-                en jij wil net rustig rondkijken. Krijgt ze jou op de foto, dan
-                is je bezoek voorbij.
-            </div>
+            <div id="start-title" data-i18n="start.title"></div>
+            <div id="start-sub" data-i18n-html="start.intro"></div>
             <div id="start-form">
-                <label for="player-name">Hoe heet je?</label>
+                <label for="player-name" data-i18n="start.nameLabel"></label>
                 <input type="text" id="player-name" maxlength="14"
-                       placeholder="Bezoeker" autocomplete="off" spellcheck="false">
-                <button id="start-button">Naar binnen</button>
+                       data-i18n-placeholder="start.namePlaceholder"
+                       autocomplete="off" spellcheck="false">
+                <button id="start-button" data-i18n="start.button"></button>
             </div>
         </div>
 
         <div id="pokedex-screen">
-            <h2>Mijn Museumdex</h2>
-            <div id="dex-count">0 van 0 objecten gevonden</div>
+            <h2 data-i18n="dex.title"></h2>
+            <div id="dex-count"></div>
             <div id="dex-list"></div>
             <div id="dex-actions">
-                <button id="dex-close" onclick="togglePokedex()">Sluiten (ESC)</button>
-                <button id="dex-download" onclick="downloadMuseumdex()">Download volledige data</button>
+                <button id="dex-close" onclick="togglePokedex()" data-i18n="dex.close"></button>
+                <button id="dex-download" onclick="downloadMuseumdex()" data-i18n="dex.download"></button>
             </div>
-            <div id="dex-download-note">
-                De download haalt de volledige catalogusgegevens op het moment
-                zelf op bij het museum, dus je krijgt meer mee dan hierboven past.
-            </div>
+            <div id="dex-download-note" data-i18n="dex.downloadNote"></div>
         </div>
     </div>
 
     <div id="source-note"></div>
 
     <div id="controls">
-        <b>Pijltjes</b> of <b>WASD</b> om te stappen &nbsp;&middot;&nbsp; <b>SPATIE</b> om een object te bekijken &nbsp;&middot;&nbsp; <b>P</b> opent je Museumdex, <b>ESC</b> sluit ze
-        <br>Stap door een <b>deur</b> om naar een andere zaal te gaan. Ontwijk <b style="color:#e0457b">MARLOT</b> &mdash;
-        het kader verklapt vanwaar ze haar foto neemt. Sleep aan <b>MOEILIJKHEID</b> om zelf het tempo te kiezen, <b>AUTO</b> geeft het terug aan het spel.
+        <div data-i18n-html="controls.line1"></div>
+        <div data-i18n-html="controls.line2"></div>
     </div>
 
-    <!-- Load the game logic.
-         The ?v= is a cache buster, and it has to be bumped whenever game.js
-         changes. GitHub Pages serves everything with cache-control: max-age=600,
-         so without it a returning player keeps running the previous game.js for
-         ten minutes after a deploy while the new index.html is already loaded —
-         a mismatch that looks exactly like "the deploy didn't work". -->
-    <script src="game.js?v=6"></script>
+    <!-- The game, as plain scripts in dependency order. No modules and no build
+         step: classic scripts share one global scope, so nothing needs exporting,
+         and the browser fetches them all in parallel over HTTP/2 rather than
+         discovering them one at a time the way `import` would.
+
+         Order matters in two places. Anything evaluated at load time needs what
+         it references already defined — the category files register themselves,
+         so the registry comes first. And the category ORDER decides which one
+         wins when several match, narrowest first, so textile precedes furniture
+         and device comes last. boot.js is last because it starts everything.
+
+         The ?v= is a cache buster on all of them at once. GitHub Pages serves
+         each file with cache-control: max-age=600, so without it a returning
+         visitor inside that window can get a mix of old and new files — worse
+         than one stale file, because the halves disagree. Bump them together
+         on release:  sed -i '' 's/?v=7/?v=8/g' index.html -->
+
+    <script src="src/util.js?v=7"></script>
+    <script src="src/i18n.js?v=7"></script>
+    <script src="src/api.js?v=7"></script>
+    <script src="src/state.js?v=7"></script>
+
+    <script src="src/art/palette.js?v=7"></script>
+    <script src="src/art/core.js?v=7"></script>
+    <script src="src/art/categories/index.js?v=7"></script>
+    <script src="src/art/categories/textile.js?v=7"></script>
+    <script src="src/art/categories/tile.js?v=7"></script>
+    <script src="src/art/categories/furniture.js?v=7"></script>
+    <script src="src/art/categories/vessel.js?v=7"></script>
+    <script src="src/art/categories/device.js?v=7"></script>
+    <script src="src/art/categories/unknown.js?v=7"></script>
+    <script src="src/art/categories/demo.js?v=7"></script>
+    <script src="src/art/characters.js?v=7"></script>
+    <script src="src/art/markers.js?v=7"></script>
+
+    <script src="src/rooms.js?v=7"></script>
+    <script src="src/marlot.js?v=7"></script>
+    <script src="src/scene.js?v=7"></script>
+
+    <script src="src/ui/hud.js?v=7"></script>
+    <script src="src/ui/dialogue.js?v=7"></script>
+    <script src="src/ui/dex.js?v=7"></script>
+    <script src="src/ui/gallery.js?v=7"></script>
+    <script src="src/ui/export.js?v=7"></script>
+
+    <script src="src/boot.js?v=7"></script>
 </body>
 </html>

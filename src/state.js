@@ -1,0 +1,69 @@
+// ==========================================
+// GAME STATE AND THE EXHIBITS IN PLAY
+// ==========================================
+//
+// MuseumAPI is filled by installExhibits() during boot — from the museum if it
+// answers, from the demo pieces in src/art/categories/demo.js if it does not.
+
+const MuseumAPI = {};
+
+// Enough of a museum to play with no network. These four keep their hand-drawn
+// art; anything arriving from the API is rendered from its own photograph.
+// Enough of a museum to play with no network. The text lives in
+// content/<lang>.json like all other copy; only the drawing is named here.
+const FALLBACK_EXHIBITS = [
+    { key: 'skull',     art: 'skull' },
+    { key: 'vase',      art: 'vase' },
+    { key: 'mask',      art: 'mask' },
+    { key: 'astrolabe', art: 'astrolabe' }
+];
+
+// Resolved at install time, once the string table is loaded.
+function demoExhibit(piece) {
+    return {
+        name: t('demo.' + piece.key + '.name'),
+        description: t('demo.' + piece.key + '.description'),
+        art: piece.art
+    };
+}
+
+let TOTAL_EXHIBITS = 0;
+
+// Tile values are handed out in order from 2, which is what the map is drawn
+// against. Everything downstream — textures, dialogue, badges, the dex, the
+// progress counter — reads MuseumAPI, so this is the only place that needs to
+// know where the exhibits came from.
+function installExhibits(records) {
+    for (const key in MuseumAPI) delete MuseumAPI[key];
+    records.forEach((record, index) => {
+        MuseumAPI['exhibit_' + (index + 2)] = record;
+    });
+    TOTAL_EXHIBITS = records.length;
+}
+
+// Tile values 2 and up are exhibits; which ones exist is decided entirely by
+// what the API returned.
+function isExhibitTile(tileValue) {
+    return Object.prototype.hasOwnProperty.call(MuseumAPI, 'exhibit_' + tileValue);
+}
+
+function tileValueFor(exhibitId) {
+    return Number(exhibitId.split('_')[1]);
+}
+
+const GameState = {
+    playerName: 'Bezoeker',
+    sessionPokedex: new Set(),
+    isReading: false,        // dialogue box is open
+    dexOpen: false,          // pokedex overlay is open
+    gameOver: false,         // MARLOT got her photo
+    threatOverride: null     // set by the demo slider; null = automatic ramp
+};
+
+// Everything that should freeze the world routes through here: player
+// movement, the interaction prompt, and MARLOT herself. That last one
+// matters — without it she could line up a shot while you're reading an
+// exhibit, which is a photo you had no way to dodge.
+function uiIsBlocking() {
+    return GameState.isReading || GameState.dexOpen || GameState.gameOver;
+}

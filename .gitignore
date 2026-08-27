@@ -10,3 +10,6 @@
 # it has to ship.
 assets/*
 !assets/Pixel-Logo-41-frames-transparent.gif
+
+# Test bundles, written by tests/harness.mjs
+tests/_bundle_*.mjs
