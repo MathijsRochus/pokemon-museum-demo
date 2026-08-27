@@ -1,7 +1,7 @@
 {
   "lang": "nl",
   "name": "Nederlands",
-  "note": "Alle tekst die de speler ziet. Objecttitels en -beschrijvingen komen uit de collectie-API en staan hier niet in.",
+  "note": "Alle tekst die de speler ziet. Objecttitels en -beschrijvingen komen uit de collectie-API.",
   "strings": {
     "start.title": "MUSEUMDEX",
     "start.intro": "Je wandelt door Design Museum Gent en neemt elk stuk dat je bekijkt op in je Museumdex. Let op <b>MARLOTTE</b> van het communicatieteam: zij zoekt bezoekers voor de campagnebeelden, en jij wil net rustig rondkijken. Krijgt ze jou op de foto, dan is je bezoek voorbij.",
