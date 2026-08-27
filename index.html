@@ -699,7 +699,12 @@
         het kader verklapt vanwaar ze haar foto neemt. Sleep aan <b>MOEILIJKHEID</b> om zelf het tempo te kiezen, <b>AUTO</b> geeft het terug aan het spel.
     </div>
 
-    <!-- Load the game logic -->
-    <script src="game.js"></script>
+    <!-- Load the game logic.
+         The ?v= is a cache buster, and it has to be bumped whenever game.js
+         changes. GitHub Pages serves everything with cache-control: max-age=600,
+         so without it a returning player keeps running the previous game.js for
+         ten minutes after a deploy while the new index.html is already loaded —
+         a mismatch that looks exactly like "the deploy didn't work". -->
+    <script src="game.js?v=2"></script>
 </body>
 </html>
