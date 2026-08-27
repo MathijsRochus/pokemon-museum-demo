@@ -102,10 +102,14 @@ posterised to six levels per channel.
 sorts an object into one of five buckets — vessel, furniture, tile, textile,
 device — and each has a hand-drawn piece. The buckets were chosen by running the
 museum's own type index (687 type names, ~12,950 objects) through the classifier
-and measuring: these five cover **88%** of the collection. The rest fall back to
+and measuring: these five cover **90%** of the collection. The rest fall back to
 a crate, and mostly deserve to — the largest unmatched types are `onderdeel`,
 `fragment` and `staal (monster)`, where a crate is the honest answer rather than
-a wrong guess.
+a wrong guess. Those genuinely shapeless types are 3.9% of the collection on
+their own, so ~96% is the realistic ceiling for any number of categories. A
+sixth bucket was measured and dropped: sculpture, the largest candidate, was
+worth only +1.2pp, against +2.2pp for simply widening the five lists already
+there.
 
 Matching is on word *endings*, not substrings, because Dutch compounds carry the
 category in the final element: a `champagneglas` is a glass, a `bijzettafel` is a

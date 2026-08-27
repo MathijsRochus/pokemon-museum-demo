@@ -178,18 +178,20 @@ const DMG = {
                      'damast', 'brokaat', 'zijde', 'textiel', 'handdoek', 'vitrage',
                      'sprei', 'dekbed', 'stalenboek', 'borduurwerk', 'kussen', 'gordijn',
                      'tule', 'lint', 'garen', 'wol', 'katoen', 'japon', 'kleed',
-                     'franje', 'passement', 'tressen']],
+                     'franje', 'passement', 'tressen', 'das']],
         ['tile',    ['tegel', 'haardsteen', 'paneel', 'sierelement', 'plaquette', 'lambrisering',
                      'baksteen', 'ornament', 'kader', 'tableau', 'fries', 'medaillon', 'reliëf']],
         ['furniture', ['stoel', 'zetel', 'fauteuil', 'tafel', 'kast', 'bank', 'bed', 'ledikant', 'wieg',
                        'buffet', 'commode', 'kabinet', 'rek', 'kruk', 'voetenbank', 'stoelsport',
                        'meubel', 'meubelbeslag', 'ladegreep', 'sleutelplaat', 'scharnier',
                        'tafelblad', 'spiegel', 'bureau', 'schab', 'poot', 'leuning', 'zitting',
-                       'vitrine', 'ladeknop']],
+                       'vitrine', 'ladeknop', 'sofa', 'divan', 'dressoir', 'kapstok', 'schraag',
+                       'kist', 'sokkel', 'voetstuk', 'meubelonderdeel']],
         ['vessel',  ['vaas', 'vaatwerk', 'bord', 'schaal', 'schotel', 'kop', 'kom', 'pot', 'kan',
                      'kruik', 'fles', 'glas', 'beker', 'terrine', 'servies', 'deksel', 'karaf',
                      'bokaal', 'kelk', 'vloot', 'vat', 'dop', 'bus', 'kroes', 'mok', 'kuip',
-                     'emmer', 'tuit']],
+                     'emmer', 'tuit', 'flacon', 'coupe', 'bonbonnière', 'onderzetter',
+                     'servetring', 'inktstel', 'fleurs']],
         ['device',  ['verpakking', 'schrijfmachine', 'strijkijzer', 'wafelijzer', 'stofzuiger',
                      'lamp', 'armatuur', 'luchter', 'radio', 'telefoon', 'apparaat', 'machine',
                      'toestel', 'prototype', 'dummy', 'maquette', 'ontwerp', 'kaart', 'affiche',
@@ -197,7 +199,8 @@ const DMG = {
                      'ketel', 'bestek', 'lepel', 'vork', 'mes', 'tang', 'schaar', 'pan', 'plaat',
                      'bak', 'logo', 'houder', 'beslag', 'sleutel', 'opener', 'weegschaal',
                      'legger', 'lampenkap', 'fototoestel', 'blad', 'rooster', 'pers', 'molen',
-                     'zeef', 'trechter', 'schep']]
+                     'zeef', 'trechter', 'schep', 'kurkentrekker', 'trekker', 'haardroger',
+                     'magneet', 'etui', 'draagtas', 'kandelaar', 'deurknop', 'theelicht']]
     ],
 
     // Dutch diminutives hide the head noun: schoteltje is a schotel, kannetje a
