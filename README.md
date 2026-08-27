@@ -5,8 +5,9 @@ in Dutch. Walk the four wings of Design Museum Gent, inspect the pieces to
 register them in your Museumdex, and don't let MARLOT photograph you.
 
 **The exhibits are real.** Every plinth holds an actual object from the museum's
-collection, pulled live from its open API at launch, photograph and curatorial
-text included. Reload the page and you get a different museum.
+collection, pulled live from its open API at launch with its own curatorial text.
+Reload the page and you get a different museum. When the API cannot be reached,
+the floor fills with sixteen objects from the museum's permanent display instead.
 
 **[▶ Play it](https://mathijsrochus.github.io/pokemon-museum-demo/)**
 
@@ -62,78 +63,114 @@ that is not there, or if a string is there that nothing uses.
 
 ## The collection API
 
-Data comes from [Design Museum Gent's open API](https://data.designmuseumgent.be/v2)
-— no key, CORS open, JSON-LD in the CIDOC-CRM vocabulary, which is why the field
-names look like `crm:P108i_was_produced_by` rather than `maker`. Roughly 9,900
-published objects.
+Data comes from [Design Museum Gent's open API](https://data.designmuseumgent.be/v2):
+no key, CORS open, generous published rate limits, and a real OpenAPI spec at
+`/v2/api-docs.json`. It is JSON-LD in the CIDOC-CRM vocabulary, which is why the
+field names read `crm:P108i_was_produced_by` rather than `maker` — verbose, but
+it means the data says what it means rather than what a particular app needed.
 
-Everything API-facing lives in the `DMG` object in `src/api.js`. Three things about
-the API shaped it:
+Everything API-facing lives in the `DMG` object in `src/api.js`.
 
-**`fullRecord=true` is the whole game.** By default `/id/objects` returns a
-label and a manifest id and nothing else, which makes every exhibit cost a
-second request for its description. With the flag, one page of one item is one
-finished record — description, maker, materials, techniques, real dimensions,
-acquisition history — so sixteen exhibits are sixteen requests rather than
-forty-eight.
+### What it gives you
 
-**Consecutive catalogue numbers are the same object.** `1998-0024_044-755` is
-the 44th of 755 fragments of one album. Taking a page of the collection gets you
-four views of the same thing, so each exhibit is drawn from its own random page
-and then deduplicated by catalogue prefix.
+| | |
+|---|---|
+| objects | 9,879 |
+| exhibitions | 550, with dates and linked objects |
+| agents | 4,268, of which 4,242 have a biography |
+| concepts | 5,691 thesaurus terms |
+| types / materials | 687 / 157, each with an object count |
 
-**Everything fails intermittently, in different ways.** The data API and the
-image host have both answered `500` in bursts and recovered a second later, so
-requests retry twice — but not on a `4xx`, which is a decision rather than a
-hiccup. Thirty-two parallel draws worked until a burst of testing started coming
-back empty, so requests are now pooled eight at a time: a boot that quietly
-returns no objects is far worse than one that takes another second.
+A single object record carries a curatorial description, the maker, the place of
+production, materials, techniques, real dimensions in centimetres, acquisition
+history, and `owl:sameAs` links out to Wikidata and the Getty vocabularies — the
+record for `1987-1105` alone has eleven Getty references. Description coverage is
+high: 36 of 40 randomly sampled objects had one, and 339 of the 353 on display.
 
-The image hosts are worse. The API has pointed `image` at `api.collectie.gent`,
-then stopped carrying image urls at all, then pointed at
-`beeldbank-temp.stad.gent`, which answers `403` to everything including its own
-`info.json`. The only route that survived all of that is the IIIF manifest — and
-measured over 24 random objects, 29% returned one, 63% returned `504`, and the
-successes took a median of 17 seconds. Which is why the manifest is used only for
-the end-of-run gallery, where nothing is waiting on it and a frame that fills in
-twenty seconds later is better than one that never does.
+The filters are the part that makes a project like this possible, and they work:
+
+```
+?type=vaas                 649      ?onDisplay=true       353
+?material=porselein      2,271      ?hasParts=true        616
+?agent=DMG-A-00162          53      ?conceptSearch=stoel  890
+?dateFrom=1900&dateTo=1949  1,743   ?concept=530008405    819
+```
+
+Two things deserve particular credit. **`fullRecord=true`** turns one page of one
+item into one finished record, so sixteen exhibits cost sixteen requests instead
+of forty-eight — I built the whole pipeline around the thin default listing
+before noticing the flag existed. And **rate limits are published in response
+headers** (`ratelimit: "300-in-1min"`), which is better manners than most
+commercial APIs manage and is the only reason the *Performance* section below can
+state real numbers rather than guesses.
+
+`?onDisplay=true` is a small, lovely touch: it is the museum's own selection of
+what is physically on the floor, which is where this game's offline collection
+comes from.
+
+### What shaped the code
+
+**Consecutive catalogue numbers are usually the same object.** `1998-0024_044-755`
+is the 44th of 755 fragments of one album — a cataloguing reality, not a bug, but
+it means a page of the collection returns four views of one thing. Each exhibit
+is drawn from its own random page and deduplicated by catalogue prefix.
 
 **Rarity comes free with the type index.** `/id/types` publishes an object count
-for all 687 type names, which is a rarity table in plain sight: a `bord
-(vaatwerk)` is one of 770, and plenty of types have exactly one object. The game
-takes the rarest of an object's types, because that is the most specific thing
-the catalogue says about it.
+for all 687 type names, which is a rarity table sitting in plain sight: a `bord
+(vaatwerk)` is one of 770 and plenty of types have exactly one object. The game
+takes the rarest of an object's types, since that is the most specific thing the
+catalogue says about it.
 
 The thresholds were measured twice. The first set came from single-type counts
 and was far too generous once rarest-of-several was applied — objects carry 1.47
 types on average, so taking the minimum drags everything rarer and a museum of
 sixteen was turning up two Unicums. Re-measured over 82 real draws, `[1, 5, 20,
 80]` lands a random object at Unicum 2%, Zeer zeldzaam 11%, Zeldzaam 15%,
-Ongewoon 18%, Gewoon 54% — so a Unicum is about one museum in three. The two
-rarest tiers float a gem over the plinth, which is what makes rarity a reason to
-cross the room rather than a label in the dex.
+Ongewoon 18%, Gewoon 54% — a Unicum about one museum in three. The two rarest
+tiers float a gem over the plinth, which is what makes rarity a reason to cross
+the room rather than a label in the dex.
 
-**The plinths do not use the museum's photographs, and that is deliberate.**
-Crushing a 600px studio photograph onto a 20px plinth produced a smudge, and
-downloading sixteen of them delayed every boot to do it. The plinths are drawn
-from the object's category instead, and the real photographs appear once, at the
-end of a run, in a gallery where they are big enough to be worth looking at.
+**A photograph is a bonus, never a requirement.** The catalogue text and the
+image URLs come from different services and fail independently, so an exhibit
+needs only a name and a description. Requiring a photo would mean an image outage
+threw away sixteen real objects and left the player with stand-ins while the
+catalogue text sat right there.
 
-**Photographs and data fail separately.** The data API serves the catalogue text
-from one service and the image URLs from another. During development the second
-one dropped out entirely — the same object that had returned `image` and
-`crm:P138i_has_representation` an hour earlier returned neither, while the IIIF
-host itself kept answering `200`. So a photograph is treated as a bonus, never a
-requirement: an exhibit needs only a name and a description, and when no
-photograph arrives it is drawn as its category instead. Requiring a photo would
-mean an image outage threw away sixteen real objects and left the player with
-stand-ins, with the catalogue text sitting right there.
+**Descriptions are Dutch only** — 36 of 36 sampled descriptions were tagged
+`NLD`, and titles are Dutch too. That is why the whole game is in Dutch: there is
+no second language to switch to. Concepts *do* carry English `skos:prefLabel`s
+and agents have biographies in Dutch, French and English, so a bilingual mode is
+possible for everything except the object text.
 
-Descriptions are **Dutch only** — 36 of 36 sampled objects had exactly one
-description, all tagged `NLD`, and titles are Dutch too. That is why the whole
-game is in Dutch: there is no second language to switch to. (Concept records —
-object types and materials — *do* carry English `skos:prefLabel`s, if a
-bilingual mode is ever wanted.)
+### Pain points
+
+This is a live service under active development, and a couple of these are
+clearly mid-change rather than neglected. Worth knowing before building on them:
+
+- **Image hosting is migrating.** `image` has pointed at `api.collectie.gent`,
+  then carried no URL at all, then pointed at `beeldbank-temp.stad.gent`, which
+  currently answers `403`. The IIIF manifest is the route that survived, and over
+  24 objects it answered 29% of the time with a 17-second median. This is the one
+  that shaped the game most: the plinths draw their objects, and only the
+  end-of-run gallery attempts a photograph, in the background, where a frame that
+  fills twenty seconds later is better than one that never does.
+- **Colour data is empty at the moment.** `hasColors=true` returns 0 and
+  `/colors/dominant` returns nothing. It was working earlier in this project —
+  12 base colours and 599 CSS colours with per-object dominance — so this reads
+  as an outage, and it is a genuinely nice feature when it is up.
+- **`searchQuery` is ignored.** Any term, nonsense included, returns all 9,879
+  objects. No full-text search for now.
+- **`/id/roles` is `404`** though the spec documents it, so the `role` filter on
+  agents has no discoverable values. `designer` (895) and `producer` (821) work
+  if you guess them. `/id/nationalities` returns a single entry.
+- **Occasional `5xx` in bursts**, recovering within a second — the API runs on
+  Heroku. Requests retry twice, but not on a `4xx`, which is a decision rather
+  than a hiccup. Draws are pooled eight at a time: thirty-two in parallel worked
+  until a burst of testing started coming back empty, and a boot that silently
+  returns no objects is far worse than one that takes another second.
+
+None of it stopped the project. The data that matters — the objects, the text,
+the filters, the counts — has been solid throughout.
 
 ## Where things live
 
@@ -387,23 +424,18 @@ measured against the live API:
 | mechanic | what it needs | size |
 |---|---|---|
 | objects really on display | `?onDisplay=true` | 353 objects |
-| definition quiz | `skos:scopeNote` + `broader`/`narrower` | 5,800 concepts |
+| definition quiz | `skos:scopeNote` + `broader`/`narrower` | 5,691 concepts |
 | designer hunt | `?agent=` and the Dutch biographies | 4,268 agents, 719 with a bio |
 | era wings | `dateFrom` / `dateTo` | 982 / 1,192 / 1,743 / 736 / 265 by era |
 | restaging an exhibition | `crm:P16_used_specific_object` | 550, the largest with 97 objects |
 
-**Endpoints that are documented but broken**, so nothing should be built on them
-until they come back:
+**Waiting on the API.** These are the mechanics I would reach for next, and the
+reason they are not built yet. See *Pain points* above for detail — in short:
+full-text search needs `searchQuery` to filter, a role-based designer hunt needs
+`/id/roles` to exist, and a colour mechanic needs the colour index to come back.
+All three look like work in progress rather than dead ends, and the colour data
+was live earlier in this project.
 
-- `searchQuery` is ignored — any term, including nonsense, returns all 9,879
-  objects. There is no working full-text search.
-- `/id/roles` is `404`, so the `role` filter on agents has no discoverable values.
-- All colour data is empty: `hasColors=true` returns 0, the colour index is
-  bare, `/colors/dominant` returns nothing. This was working earlier — 12 base
-  colours and 599 CSS colours with per-object dominance — so it is an outage
-  rather than a removal.
-- The image host is mid-migration. `image` now points at
-  `beeldbank-temp.stad.gent`, which answers `403` to everything including its
-  own `info.json`; the IIIF manifest is the only route that still works, and it
-  answers ~29% of the time with a 17-second median. This is why the plinths draw
-  their objects and only the end gallery attempts a photograph.
+If any of it matters to you, the museum is approachable and the API has a public
+[GitHub repository](https://github.com/DesignMuseumGent/dmg-rest-api) — worth
+asking rather than working around.
