@@ -13,3 +13,6 @@ assets/*
 
 # Test bundles, written by tests/harness.mjs
 tests/_bundle_*.mjs
+
+# Persoonlijke notities en mailconcepten — niet publiceren
+notes/
